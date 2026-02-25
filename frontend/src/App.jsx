@@ -1,12 +1,13 @@
 import React, { useState } from 'react'
 import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom'
-import { MessageSquare, TrendingUp, GitPullRequest, FileText, Heart, HelpCircle } from 'lucide-react'
+import { MessageSquare, TrendingUp, GitPullRequest, FileText, Heart, HelpCircle, Github } from 'lucide-react'
 import ChatPage from './pages/ChatPage'
 import TrendingPage from './pages/TrendingPage'
 import PRPage from './pages/PRPage'
 import IssuePage from './pages/IssuePage'
 import HealthPage from './pages/HealthPage'
 import QAPage from './pages/QAPage'
+import GitHubBrowserPage from './pages/GitHubBrowserPage'
 import './App.css'
 
 function NavBar() {
@@ -15,6 +16,7 @@ function NavBar() {
   const navItems = [
     { path: '/', icon: MessageSquare, label: '对话', name: 'chat' },
     { path: '/trending', icon: TrendingUp, label: '热门项目', name: 'trending' },
+    { path: '/github', icon: Github, label: 'GitHub浏览器', name: 'github' },
     { path: '/prs', icon: GitPullRequest, label: 'PR分析', name: 'prs' },
     { path: '/issues', icon: FileText, label: 'Issue管理', name: 'issues' },
     { path: '/health', icon: Heart, label: '健康度', name: 'health' },
@@ -52,14 +54,15 @@ function App() {
       <div className="app">
         <NavBar />
         <main className="main-content">
-          <Routes>
-            <Route path="/" element={<ChatPage />} />
-            <Route path="/trending" element={<TrendingPage />} />
-            <Route path="/prs" element={<PRPage />} />
-            <Route path="/issues" element={<IssuePage />} />
-            <Route path="/health" element={<HealthPage />} />
-            <Route path="/qa" element={<QAPage />} />
-          </Routes>
+            <Routes>
+              <Route path="/" element={<ChatPage />} />
+              <Route path="/trending" element={<TrendingPage />} />
+              <Route path="/github" element={<GitHubBrowserPage />} />
+              <Route path="/prs" element={<PRPage />} />
+              <Route path="/issues" element={<IssuePage />} />
+              <Route path="/health" element={<HealthPage />} />
+              <Route path="/qa" element={<QAPage />} />
+            </Routes>
         </main>
       </div>
     </Router>

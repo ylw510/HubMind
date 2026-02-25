@@ -269,6 +269,110 @@ async def get_repo_health(request: HealthRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# GitHub Browser API
+class GitHubRepoRequest(BaseModel):
+    repo: str
+
+class GitHubFilesRequest(BaseModel):
+    repo: str
+    path: str = ""
+
+@app.post("/api/github/repo-info")
+async def get_repo_info(request: GitHubRepoRequest):
+    """Get GitHub repository information"""
+    try:
+        from github import Github
+        github = Github(Config.GITHUB_TOKEN)
+        repo = github.get_repo(request.repo)
+
+        return {
+            "id": repo.id,
+            "name": repo.name,
+            "full_name": repo.full_name,
+            "description": repo.description,
+            "html_url": repo.html_url,
+            "clone_url": repo.clone_url,
+            "language": repo.language,
+            "stargazers_count": repo.stargazers_count,
+            "forks_count": repo.forks_count,
+            "watchers_count": repo.watchers_count,
+            "open_issues_count": repo.open_issues_count,
+            "default_branch": repo.default_branch,
+            "size": repo.size,
+            "created_at": repo.created_at.isoformat() if repo.created_at else None,
+            "updated_at": repo.updated_at.isoformat() if repo.updated_at else None,
+            "pushed_at": repo.pushed_at.isoformat() if repo.pushed_at else None,
+            "license": {
+                "name": repo.license.name if repo.license else None,
+                "spdx_id": repo.license.spdx_id if repo.license else None,
+            } if repo.license else None,
+            "topics": list(repo.get_topics()),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/github/repo-files")
+async def get_repo_files(request: GitHubFilesRequest):
+    """Get repository files and directories"""
+    try:
+        from github import Github
+        github = Github(Config.GITHUB_TOKEN)
+        repo = github.get_repo(request.repo)
+
+        contents = repo.get_contents(request.path) if request.path else repo.get_contents("")
+
+        # Handle single file vs list
+        if not isinstance(contents, list):
+            contents = [contents]
+
+        files = []
+        for content in contents:
+            files.append({
+                "name": content.name,
+                "path": content.path,
+                "type": content.type,  # 'file' or 'dir'
+                "size": content.size if hasattr(content, 'size') else None,
+                "html_url": content.html_url,
+                "download_url": content.download_url,
+            })
+
+        # Sort: directories first, then files
+        files.sort(key=lambda x: (x["type"] != "dir", x["name"].lower()))
+
+        return files
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/github/readme")
+async def get_readme(request: GitHubRepoRequest):
+    """Get repository README content"""
+    try:
+        from github import Github
+        import base64
+        github = Github(Config.GITHUB_TOKEN)
+        repo = github.get_repo(request.repo)
+
+        try:
+            readme = repo.get_readme()
+            # Decode base64 content
+            content = base64.b64decode(readme.content).decode('utf-8')
+            return {
+                "content": content,
+                "name": readme.name,
+                "path": readme.path,
+                "html_url": readme.html_url,
+            }
+        except Exception as e:
+            # README not found
+            return {
+                "content": "# README not found\n\nThis repository does not have a README file.",
+                "name": "README.md",
+                "path": "README.md",
+                "html_url": None,
+            }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

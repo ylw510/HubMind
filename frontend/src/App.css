@@ -154,3 +154,14 @@
   border-radius: 6px;
   margin-bottom: 20px;
 }
+
+.button-secondary {
+  background: #21262d;
+  color: #c9d1d9;
+  border: 1px solid #30363d;
+}
+
+.button-secondary:hover:not(:disabled) {
+  background: #30363d;
+  border-color: #484f58;
+}

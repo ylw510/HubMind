@@ -80,4 +80,26 @@ export const healthAPI = {
   },
 }
 
+export const githubAPI = {
+  getRepoInfo: async (repo) => {
+    const response = await api.post('/api/github/repo-info', {
+      repo,
+    })
+    return response.data
+  },
+  getRepoFiles: async (repo, path = '') => {
+    const response = await api.post('/api/github/repo-files', {
+      repo,
+      path,
+    })
+    return response.data
+  },
+  getReadme: async (repo) => {
+    const response = await api.post('/api/github/readme', {
+      repo,
+    })
+    return response.data
+  },
+}
+
 export default api

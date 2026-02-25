@@ -36,11 +36,21 @@ class GitHubPRTool:
             today = datetime.now().date()
 
             prs = []
+            # First try to get PRs updated today
             for pr in repo.get_pulls(state="all", sort="updated", direction="desc"):
                 if pr.updated_at.date() == today:
                     prs.append(self._pr_to_dict(pr))
                     if len(prs) >= limit:
                         break
+
+            # If no PRs updated today, get recent PRs (last 7 days)
+            if len(prs) == 0:
+                week_ago = datetime.now().date() - timedelta(days=7)
+                for pr in repo.get_pulls(state="all", sort="updated", direction="desc"):
+                    if pr.updated_at.date() >= week_ago:
+                        prs.append(self._pr_to_dict(pr))
+                        if len(prs) >= limit:
+                            break
 
             return prs
         except Exception as e:

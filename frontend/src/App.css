@@ -1,0 +1,156 @@
+.app {
+  display: flex;
+  min-height: 100vh;
+}
+
+.navbar {
+  width: 250px;
+  background: #161b22;
+  border-right: 1px solid #30363d;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  height: 100vh;
+  overflow-y: auto;
+}
+
+.nav-brand {
+  margin-bottom: 30px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid #30363d;
+}
+
+.nav-brand h1 {
+  font-size: 24px;
+  color: #58a6ff;
+  font-weight: 600;
+}
+
+.nav-links {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.nav-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  color: #c9d1d9;
+  text-decoration: none;
+  border-radius: 6px;
+  transition: all 0.2s;
+  font-size: 14px;
+}
+
+.nav-link:hover {
+  background: #21262d;
+  color: #58a6ff;
+}
+
+.nav-link.active {
+  background: #1f6feb;
+  color: #ffffff;
+}
+
+.main-content {
+  flex: 1;
+  margin-left: 250px;
+  padding: 40px;
+  max-width: 1200px;
+}
+
+.page-container {
+  max-width: 1000px;
+  margin: 0 auto;
+}
+
+.page-title {
+  font-size: 32px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: #f0f6fc;
+}
+
+.page-description {
+  color: #8b949e;
+  margin-bottom: 30px;
+  font-size: 14px;
+}
+
+.card {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  padding: 24px;
+  margin-bottom: 20px;
+}
+
+.card-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  color: #f0f6fc;
+}
+
+.button {
+  background: #238636;
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: background 0.2s;
+}
+
+.button:hover {
+  background: #2ea043;
+}
+
+.button:disabled {
+  background: #30363d;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.input {
+  width: 100%;
+  padding: 10px 14px;
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  color: #c9d1d9;
+  font-size: 14px;
+  margin-bottom: 12px;
+}
+
+.input:focus {
+  outline: none;
+  border-color: #1f6feb;
+}
+
+.loading {
+  text-align: center;
+  padding: 40px;
+  color: #8b949e;
+}
+
+.error {
+  background: #da3633;
+  color: white;
+  padding: 12px 16px;
+  border-radius: 6px;
+  margin-bottom: 20px;
+}
+
+.success {
+  background: #238636;
+  color: white;
+  padding: 12px 16px;
+  border-radius: 6px;
+  margin-bottom: 20px;
+}

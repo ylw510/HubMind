@@ -143,12 +143,14 @@ Your capabilities:
 Always be helpful, concise, and provide actionable insights. When showing results, format them nicely with clear sections."""
 
         # Use LangChain 1.2+ create_agent API (unified for all LLMs)
-        return create_agent(
+        # Note: create_agent returns a CompiledStateGraph, not a simple callable
+        agent_graph = create_agent(
             model=self.llm,
             tools=self.tools,
             system_prompt=system_prompt,
-            debug=True
+            debug=False  # Disable debug to reduce output
         )
+        return agent_graph
 
     def _supports_tool_calling(self) -> bool:
         """Check if the LLM supports tool calling"""
@@ -322,19 +324,57 @@ Always be helpful, concise, and provide actionable insights. When showing result
         """
         try:
             # LangChain 1.2+ agent invocation
-            config = {"configurable": {"thread_id": "1"}}
-            result = self.agent.invoke({"messages": [HumanMessage(content=message)]}, config)
+            # Use a consistent thread_id for the session
+            import hashlib
+            thread_id = hashlib.md5(message.encode()).hexdigest()[:8]
+            config = {"configurable": {"thread_id": thread_id}}
+
+            # Prepare input - LangChain 1.2+ expects messages in the input
+            input_data = {"messages": [HumanMessage(content=message)]}
+
+            # Invoke agent - handle potential connection issues
+            try:
+                result = self.agent.invoke(input_data, config)
+            except (BrokenPipeError, ConnectionError, OSError) as conn_error:
+                # Retry once with a new thread_id if connection error
+                import time
+                time.sleep(0.5)  # Brief delay before retry
+                thread_id = hashlib.md5(f"{message}_{time.time()}".encode()).hexdigest()[:8]
+                config = {"configurable": {"thread_id": thread_id}}
+                result = self.agent.invoke(input_data, config)
 
             # Extract response from agent output
+            # LangChain 1.2+ returns a dict with 'messages' key
             if isinstance(result, dict):
-                if "messages" in result:
-                    last_message = result["messages"][-1]
-                    return last_message.content if hasattr(last_message, "content") else str(last_message)
+                if "messages" in result and len(result["messages"]) > 0:
+                    # Get the last AI message
+                    messages = result["messages"]
+                    # Find the last AIMessage
+                    for msg in reversed(messages):
+                        if hasattr(msg, "content"):
+                            content = msg.content
+                            if content and content.strip():
+                                return content
+                        elif isinstance(msg, dict):
+                            if "content" in msg and msg["content"]:
+                                return msg["content"]
+                    # Fallback: return last message as string
+                    return str(messages[-1])
                 elif "output" in result:
                     return result["output"]
                 else:
+                    # Try to extract any text from the result
                     return str(result)
+            elif hasattr(result, "content"):
+                return result.content
             else:
                 return str(result)
+        except (BrokenPipeError, ConnectionError, OSError) as conn_error:
+            return "连接中断，请刷新页面重试。"
         except Exception as e:
-            return f"Error processing request: {str(e)}"
+            import traceback
+            error_detail = traceback.format_exc()
+            # Log error for debugging (but don't expose to user)
+            print(f"Agent error: {str(e)}")
+            print(f"Error detail: {error_detail[:500]}")
+            return f"处理请求时出错: {str(e)}。请检查配置是否正确。"

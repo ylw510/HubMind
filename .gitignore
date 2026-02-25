@@ -29,6 +29,8 @@ ENV/
 # Environment variables
 .env
 .env.local
+backend/.env
+frontend/.env
 
 # IDE
 .vscode/

@@ -1,0 +1,3 @@
+"""
+HubMind Backend - FastAPI Application
+"""

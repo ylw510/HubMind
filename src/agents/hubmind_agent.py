@@ -25,32 +25,42 @@ class HubMindAgent:
         self,
         provider: Optional[str] = None,
         model_name: Optional[str] = None,
-        temperature: float = 0.3
+        temperature: float = 0.3,
+        github_token: Optional[str] = None,
+        llm_api_key: Optional[str] = None,
     ):
         """
         Initialize HubMind Agent
 
         Args:
-            provider: LLM provider (openai, anthropic, google, azure, ollama, groq)
+            provider: LLM provider (openai, anthropic, google, azure, ollama, groq, deepseek)
             model_name: Model name (optional, uses provider default if not provided)
             temperature: Model temperature
+            github_token: Optional override for GitHub token (e.g. from user settings)
+            llm_api_key: Optional override for LLM API key (e.g. from user settings)
         """
-        Config.validate()
+        use_overrides = bool(github_token and llm_api_key)
+        if not use_overrides:
+            Config.validate()
 
-        # Use config provider if not specified
         provider = provider or Config.LLM_PROVIDER
         model_name = model_name or Config.LLM_MODEL or None
+
+        llm_kwargs = {}
+        if llm_api_key:
+            llm_kwargs["api_key"] = llm_api_key
 
         self.llm = LLMFactory.create_llm(
             provider=provider,
             model_name=model_name,
-            temperature=temperature
+            temperature=temperature,
+            **llm_kwargs
         )
 
-        # Initialize tools
-        self.trending_tool = GitHubTrendingTool()
-        self.pr_tool = GitHubPRTool()
-        self.issue_tool = GitHubIssueTool()
+        # Initialize tools (with optional user github token)
+        self.trending_tool = GitHubTrendingTool(github_token=github_token)
+        self.pr_tool = GitHubPRTool(github_token=github_token)
+        self.issue_tool = GitHubIssueTool(github_token=github_token)
 
         # Create LangChain tools
         self.tools = self._create_tools()

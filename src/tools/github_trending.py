@@ -13,8 +13,9 @@ from config import Config
 class GitHubTrendingTool:
     """Tool for fetching GitHub trending repositories"""
 
-    def __init__(self):
-        self.github = Github(Config.GITHUB_TOKEN)
+    def __init__(self, github_token: Optional[str] = None):
+        token = github_token or Config.GITHUB_TOKEN
+        self.github = Github(token)
 
     def get_trending_repos(
         self,

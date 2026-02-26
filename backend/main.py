@@ -1,20 +1,24 @@
 """
 HubMind Backend - FastAPI Main Application
 """
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
+from contextlib import asynccontextmanager
 import sys
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Load environment variables from backend/.env
-load_dotenv(Path(__file__).parent / '.env')
+# Load environment variables from backend/.env（override=True 避免被 shell 已有空 DATABASE_URL 覆盖）
+load_dotenv(Path(__file__).resolve().parent / '.env', override=True)
 
-# Add parent directory to path
-sys.path.append(str(Path(__file__).parent.parent))
+# Add backend and project root to path
+_backend_dir = Path(__file__).parent
+_root_dir = _backend_dir.parent
+sys.path.insert(0, str(_backend_dir))
+sys.path.append(str(_root_dir))
 
 from src.agents.hubmind_agent import HubMindAgent
 from src.agents.qa_agent import HubMindQAAgent
@@ -24,16 +28,39 @@ from src.tools.github_issue import GitHubIssueTool
 from src.utils.dashboard import DeveloperDashboard
 from config import Config
 
+# Auth and database (backend-local)
+from database import init_db, get_db, User, UserSettings, SessionLocal
+from auth import get_password_hash, verify_password, create_access_token, decode_access_token  # noqa: E501
+from sqlalchemy.orm import Session
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    yield
+
+
 app = FastAPI(
     title="HubMind API",
     description="GitHub Intelligent Assistant API",
-    version="0.2.0"
+    version="0.2.0",
+    lifespan=lifespan,
 )
 
-# CORS middleware
+# CORS middleware（允许本地开发任意端口，避免 Vite 使用 3001/3002 时被拦截）
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173"],  # React dev servers
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://localhost:3002",
+        "http://localhost:5173",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:3001",
+        "http://127.0.0.1:3002",
+        "http://127.0.0.1:5173",
+    ],
+    allow_origin_regex=r"^http://(localhost|127\.0\.0\.1)(:\d+)?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -75,6 +102,35 @@ class QARequest(BaseModel):
 class HealthRequest(BaseModel):
     repo: str
     days: int = 30
+
+
+# Auth & Settings models
+class RegisterRequest(BaseModel):
+    username: str
+    password: str
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class SettingsUpdateRequest(BaseModel):
+    github_token: Optional[str] = None
+    llm_provider: Optional[str] = None
+    llm_api_key: Optional[str] = None
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+class SettingsResponse(BaseModel):
+    github_token: str  # masked in response: show only last 4 chars or "***"
+    llm_provider: str
+    llm_api_key: str  # masked
+
 
 # Initialize agents and tools (lazy loading)
 _agent: Optional[HubMindAgent] = None
@@ -120,6 +176,41 @@ def get_dashboard() -> DeveloperDashboard:
         _dashboard = DeveloperDashboard()
     return _dashboard
 
+
+def get_user_settings(db: Session, user_id: int) -> Optional[UserSettings]:
+    return db.query(UserSettings).filter(UserSettings.user_id == user_id).first()
+
+
+def get_current_user_optional(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> Optional[User]:
+    """Return current user if valid Bearer token present, else None."""
+    auth = request.headers.get("Authorization")
+    if not auth or not auth.startswith("Bearer "):
+        return None
+    token = auth.split(" ", 1)[1]
+    payload = decode_access_token(token)
+    if not payload or "sub" not in payload:
+        return None
+    user_id = payload.get("sub")
+    if not user_id:
+        return None
+    try:
+        uid = int(user_id)
+    except (TypeError, ValueError):
+        return None
+    user = db.query(User).filter(User.id == uid).first()
+    return user
+
+
+def get_current_user_required(user: Optional[User] = Depends(get_current_user_optional)) -> User:
+    """Require authenticated user; raise 401 if not."""
+    if user is None:
+        raise HTTPException(status_code=401, detail="未登录或登录已过期")
+    return user
+
+
 @app.get("/")
 async def root():
     """API root endpoint"""
@@ -143,11 +234,157 @@ async def health_check():
     """Health check endpoint"""
     return {"status": "healthy", "service": "HubMind API"}
 
+
+# ----- Auth & Settings -----
+@app.post("/api/register")
+async def register(data: RegisterRequest, db: Session = Depends(get_db)):
+    """Register a new user."""
+    try:
+        if not data.username or not data.username.strip():
+            raise HTTPException(status_code=400, detail="用户名不能为空")
+        if len(data.password) < 6:
+            raise HTTPException(status_code=400, detail="密码至少 6 位")
+        username = data.username.strip()
+        existing = db.query(User).filter(User.username == username).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="用户名已存在")
+        user = User(
+            username=username,
+            password_hash=get_password_hash(data.password),
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        settings = UserSettings(user_id=user.id)
+        db.add(settings)
+        db.commit()
+        access_token = create_access_token(data={"sub": str(user.id)})
+        return {"access_token": access_token, "token_type": "bearer", "user": {"id": user.id, "username": user.username}}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"注册失败: {str(e)}")
+
+
+@app.post("/api/login")
+async def login(data: LoginRequest, db: Session = Depends(get_db)):
+    """Login and return JWT."""
+    user = db.query(User).filter(User.username == data.username).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="用户不存在")
+    if not verify_password(data.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="密码错误")
+    access_token = create_access_token(data={"sub": str(user.id)})
+    return {"access_token": access_token, "token_type": "bearer", "user": {"id": user.id, "username": user.username}}
+
+
+@app.get("/api/me")
+async def me(user: User = Depends(get_current_user_required)):
+    """Get current user info."""
+    return {"id": user.id, "username": user.username}
+
+
+@app.get("/api/settings", response_model=SettingsResponse)
+async def get_settings(user: User = Depends(get_current_user_required), db: Session = Depends(get_db)):
+    """Get current user's settings (tokens masked)."""
+    settings = get_user_settings(db, user.id)
+    if not settings:
+        return SettingsResponse(github_token="", llm_provider="deepseek", llm_api_key="")
+    def mask(s: str) -> str:
+        if not s or len(s) <= 4:
+            return "***" if s else ""
+        return "***" + s[-4:]
+    return SettingsResponse(
+        github_token=mask(settings.github_token or ""),
+        llm_provider=settings.llm_provider or "deepseek",
+        llm_api_key=mask(settings.llm_api_key or ""),
+    )
+
+
+@app.put("/api/settings")
+async def update_settings(
+    data: SettingsUpdateRequest,
+    user: User = Depends(get_current_user_required),
+    db: Session = Depends(get_db),
+):
+    """Update current user's LLM and GitHub settings."""
+    settings = get_user_settings(db, user.id)
+    if not settings:
+        settings = UserSettings(user_id=user.id)
+        db.add(settings)
+        db.commit()
+        db.refresh(settings)
+    if data.github_token is not None:
+        settings.github_token = data.github_token
+    if data.llm_provider is not None:
+        settings.llm_provider = data.llm_provider
+    if data.llm_api_key is not None:
+        settings.llm_api_key = data.llm_api_key
+    db.commit()
+    return {"ok": True}
+
+
+@app.put("/api/password")
+async def change_password(
+    data: ChangePasswordRequest,
+    user: User = Depends(get_current_user_required),
+    db: Session = Depends(get_db),
+):
+    """修改当前用户密码。"""
+    if len(data.new_password) < 6:
+        raise HTTPException(status_code=400, detail="新密码至少 6 位")
+    if not verify_password(data.current_password, user.password_hash):
+        raise HTTPException(status_code=400, detail="当前密码错误")
+    user.password_hash = get_password_hash(data.new_password)
+    db.commit()
+    return {"ok": True}
+
+
+def _agent_for_user(db: Session, user: User) -> Optional[HubMindAgent]:
+    """Create HubMindAgent with user's settings if they have tokens set."""
+    settings = get_user_settings(db, user.id)
+    if not settings or (not settings.github_token and not settings.llm_api_key):
+        return None
+    return HubMindAgent(
+        provider=settings.llm_provider or Config.LLM_PROVIDER,
+        github_token=settings.github_token or None,
+        llm_api_key=settings.llm_api_key or None,
+    )
+
+
+def _qa_agent_for_user(db: Session, user: User) -> Optional[HubMindQAAgent]:
+    settings = get_user_settings(db, user.id)
+    if not settings or (not settings.github_token and not settings.llm_api_key):
+        return None
+    return HubMindQAAgent(
+        provider=settings.llm_provider or Config.LLM_PROVIDER,
+        github_token=settings.github_token or None,
+        llm_api_key=settings.llm_api_key or None,
+    )
+
+
+def _github_for_user(db: Session, user: User):
+    """Return PyGithub instance for user's token, or None."""
+    settings = get_user_settings(db, user.id)
+    if not settings or not settings.github_token:
+        return None
+    from github import Github
+    return Github(settings.github_token)
+
 @app.post("/api/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest):
+async def chat(
+    request: ChatRequest,
+    user: Optional[User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db),
+):
     """Chat with HubMind agent"""
     try:
-        agent = get_agent()
+        agent = _agent_for_user(db, user) if user else None
+        if agent is None:
+            agent = get_agent()
 
         # Run agent.chat in executor to avoid blocking the event loop
         # This prevents BrokenPipeError when client disconnects
@@ -188,10 +425,19 @@ async def chat(request: ChatRequest):
         return ChatResponse(response=f"服务器错误: {str(e)}", chat_history=chat_history)
 
 @app.post("/api/trending")
-async def get_trending(request: TrendingRequest):
+async def get_trending(
+    request: TrendingRequest,
+    user: Optional[User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db),
+):
     """Get trending repositories"""
     try:
-        tool = get_trending_tool()
+        if user:
+            settings = get_user_settings(db, user.id)
+            token = (settings.github_token or "") if settings else ""
+            tool = GitHubTrendingTool(github_token=token) if token else get_trending_tool()
+        else:
+            tool = get_trending_tool()
         repos = tool.get_trending_repos(
             language=request.language,
             since=request.since,
@@ -207,10 +453,19 @@ async def get_trending(request: TrendingRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/prs")
-async def get_prs(request: PRRequest):
+async def get_prs(
+    request: PRRequest,
+    user: Optional[User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db),
+):
     """Get pull requests for a repository"""
     try:
-        tool = get_pr_tool()
+        if user:
+            settings = get_user_settings(db, user.id)
+            token = (settings.github_token or "") if settings else ""
+            tool = GitHubPRTool(github_token=token) if token else get_pr_tool()
+        else:
+            tool = get_pr_tool()
         if request.valuable:
             prs = tool.get_valuable_prs(request.repo, limit=request.limit)
         else:
@@ -225,20 +480,38 @@ async def get_prs(request: PRRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/analyze-pr")
-async def analyze_pr(request: AnalyzePRRequest):
+async def analyze_pr(
+    request: AnalyzePRRequest,
+    user: Optional[User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db),
+):
     """Analyze a specific pull request"""
     try:
-        tool = get_pr_tool()
+        if user:
+            settings = get_user_settings(db, user.id)
+            token = (settings.github_token or "") if settings else ""
+            tool = GitHubPRTool(github_token=token) if token else get_pr_tool()
+        else:
+            tool = get_pr_tool()
         analysis = tool.analyze_pr(request.repo, request.pr_number)
         return analysis
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/create-issue")
-async def create_issue(request: CreateIssueRequest):
+async def create_issue(
+    request: CreateIssueRequest,
+    user: Optional[User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db),
+):
     """Create a GitHub issue"""
     try:
-        tool = get_issue_tool()
+        if user:
+            settings = get_user_settings(db, user.id)
+            token = (settings.github_token or "") if settings else ""
+            tool = GitHubIssueTool(github_token=token) if token else get_issue_tool()
+        else:
+            tool = get_issue_tool()
         result = tool.create_issue_from_text(
             request.repo,
             request.text,
@@ -250,20 +523,35 @@ async def create_issue(request: CreateIssueRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/qa")
-async def ask_question(request: QARequest):
+async def ask_question(
+    request: QARequest,
+    user: Optional[User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db),
+):
     """Ask a question about a repository"""
     try:
-        qa_agent = get_qa_agent()
+        qa_agent = _qa_agent_for_user(db, user) if user else None
+        if qa_agent is None:
+            qa_agent = get_qa_agent()
         result = qa_agent.answer_repo_question(request.repo, request.question)
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/health-repo")
-async def get_repo_health(request: HealthRequest):
+async def get_repo_health(
+    request: HealthRequest,
+    user: Optional[User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db),
+):
     """Get repository health metrics"""
     try:
-        dashboard = get_dashboard()
+        if user:
+            settings = get_user_settings(db, user.id)
+            token = (settings.github_token or "") if settings else ""
+            dashboard = DeveloperDashboard(github_token=token) if token else get_dashboard()
+        else:
+            dashboard = get_dashboard()
         health = dashboard.get_repo_health(request.repo, days=request.days)
         return health
     except Exception as e:
@@ -278,11 +566,17 @@ class GitHubFilesRequest(BaseModel):
     path: str = ""
 
 @app.post("/api/github/repo-info")
-async def get_repo_info(request: GitHubRepoRequest):
+async def get_repo_info(
+    request: GitHubRepoRequest,
+    user: Optional[User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db),
+):
     """Get GitHub repository information"""
     try:
         from github import Github
-        github = Github(Config.GITHUB_TOKEN)
+        github = _github_for_user(db, user) if user else None
+        if github is None:
+            github = Github(Config.GITHUB_TOKEN)
         repo = github.get_repo(request.repo)
 
         return {
@@ -312,11 +606,17 @@ async def get_repo_info(request: GitHubRepoRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/github/repo-files")
-async def get_repo_files(request: GitHubFilesRequest):
+async def get_repo_files(
+    request: GitHubFilesRequest,
+    user: Optional[User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db),
+):
     """Get repository files and directories"""
     try:
         from github import Github
-        github = Github(Config.GITHUB_TOKEN)
+        github = _github_for_user(db, user) if user else None
+        if github is None:
+            github = Github(Config.GITHUB_TOKEN)
         repo = github.get_repo(request.repo)
 
         contents = repo.get_contents(request.path) if request.path else repo.get_contents("")
@@ -344,12 +644,18 @@ async def get_repo_files(request: GitHubFilesRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/github/readme")
-async def get_readme(request: GitHubRepoRequest):
+async def get_readme(
+    request: GitHubRepoRequest,
+    user: Optional[User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db),
+):
     """Get repository README content"""
     try:
         from github import Github
         import base64
-        github = Github(Config.GITHUB_TOKEN)
+        github = _github_for_user(db, user) if user else None
+        if github is None:
+            github = Github(Config.GITHUB_TOKEN)
         repo = github.get_repo(request.repo)
 
         try:

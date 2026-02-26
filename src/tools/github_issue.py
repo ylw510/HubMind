@@ -12,8 +12,9 @@ from config import Config
 class GitHubIssueTool:
     """Tool for managing GitHub Issues"""
 
-    def __init__(self):
-        self.github = Github(Config.GITHUB_TOKEN)
+    def __init__(self, github_token: Optional[str] = None):
+        token = github_token or Config.GITHUB_TOKEN
+        self.github = Github(token)
 
     def create_issue_from_text(
         self,

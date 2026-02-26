@@ -19,27 +19,38 @@ class HubMindQAAgent:
     def __init__(
         self,
         provider: Optional[str] = None,
-        model_name: Optional[str] = None
+        model_name: Optional[str] = None,
+        github_token: Optional[str] = None,
+        llm_api_key: Optional[str] = None,
     ):
         """
         Initialize QA Agent
 
         Args:
-            provider: LLM provider (openai, anthropic, google, azure, ollama, groq)
+            provider: LLM provider (openai, anthropic, google, azure, ollama, groq, deepseek)
             model_name: Model name (optional, uses provider default if not provided)
+            github_token: Optional override for GitHub token
+            llm_api_key: Optional override for LLM API key
         """
-        Config.validate()
+        use_overrides = bool(github_token and llm_api_key)
+        if not use_overrides:
+            Config.validate()
 
-        # Use config provider if not specified
         provider = provider or Config.LLM_PROVIDER
         model_name = model_name or Config.LLM_MODEL or None
+
+        llm_kwargs = {}
+        if llm_api_key:
+            llm_kwargs["api_key"] = llm_api_key
 
         self.llm = LLMFactory.create_llm(
             provider=provider,
             model_name=model_name,
-            temperature=0.2
+            temperature=0.2,
+            **llm_kwargs
         )
-        self.github = Github(Config.GITHUB_TOKEN)
+        token = github_token or Config.GITHUB_TOKEN
+        self.github = Github(token)
 
         self.qa_prompt_template = """You are a helpful GitHub repository assistant. Answer questions about repositories based on the provided context.
 

@@ -1,7 +1,7 @@
 """
 Developer Dashboard Utilities
 """
-from typing import Dict, List
+from typing import Dict, List, Optional
 from datetime import datetime, timedelta
 from github import Github
 import sys
@@ -13,8 +13,9 @@ from config import Config
 class DeveloperDashboard:
     """Developer dashboard for monitoring repositories"""
 
-    def __init__(self):
-        self.github = Github(Config.GITHUB_TOKEN)
+    def __init__(self, github_token: Optional[str] = None):
+        token = github_token or Config.GITHUB_TOKEN
+        self.github = Github(token)
 
     def get_repo_health(
         self,

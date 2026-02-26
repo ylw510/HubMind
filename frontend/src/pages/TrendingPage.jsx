@@ -72,29 +72,25 @@ function TrendingPage() {
             <div key={idx} className="card">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
                 <div style={{ flex: 1 }}>
-                  <h3 style={{ marginBottom: '8px', color: '#58a6ff' }}>
+                  <h3 className="card-title" style={{ marginBottom: '8px' }}>
                     <a
                       href={repo.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      style={{ color: '#58a6ff', textDecoration: 'none' }}
+                      className="link-accent"
                     >
                       {repo.name}
-                      <ExternalLink size={14} style={{ marginLeft: '6px', display: 'inline' }} />
+                      <ExternalLink size={14} style={{ marginLeft: '6px', display: 'inline', verticalAlign: 'middle' }} />
                     </a>
                   </h3>
-                  <p style={{ color: '#8b949e', marginBottom: '12px', fontSize: '14px' }}>
+                  <p className="text-secondary" style={{ marginBottom: '12px', fontSize: '14px' }}>
                     {repo.description || '暂无描述'}
                   </p>
-                  <div style={{ display: 'flex', gap: '16px', fontSize: '12px', color: '#8b949e' }}>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      <Star size={14} /> {repo.stars}
-                    </span>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      <GitFork size={14} /> {repo.forks}
-                    </span>
+                  <div className="repo-meta">
+                    <span><Star size={14} /> {repo.stars}</span>
+                    <span><GitFork size={14} /> {repo.forks}</span>
                     {repo.language && (
-                      <span style={{ color: '#58a6ff' }}>● {repo.language}</span>
+                      <span className="repo-lang">● {repo.language}</span>
                     )}
                   </div>
                 </div>

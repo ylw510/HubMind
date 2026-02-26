@@ -13,8 +13,9 @@ from config import Config
 class GitHubPRTool:
     """Tool for analyzing GitHub Pull Requests"""
 
-    def __init__(self):
-        self.github = Github(Config.GITHUB_TOKEN)
+    def __init__(self, github_token: Optional[str] = None):
+        token = github_token or Config.GITHUB_TOKEN
+        self.github = Github(token)
 
     def get_today_prs(
         self,

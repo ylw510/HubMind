@@ -119,6 +119,8 @@ class SettingsUpdateRequest(BaseModel):
     github_token: Optional[str] = None
     llm_provider: Optional[str] = None
     llm_api_key: Optional[str] = None
+    llm_base_url: Optional[str] = None
+    llm_model: Optional[str] = None
 
 
 class ChangePasswordRequest(BaseModel):
@@ -127,9 +129,11 @@ class ChangePasswordRequest(BaseModel):
 
 
 class SettingsResponse(BaseModel):
-    github_token: str  # masked in response: show only last 4 chars or "***"
+    github_token: str
     llm_provider: str
-    llm_api_key: str  # masked
+    llm_api_key: str
+    llm_base_url: str = ""
+    llm_model: str = ""
 
 
 # Initialize agents and tools (lazy loading)
@@ -292,7 +296,7 @@ async def get_settings(user: User = Depends(get_current_user_required), db: Sess
     """Get current user's settings (tokens masked)."""
     settings = get_user_settings(db, user.id)
     if not settings:
-        return SettingsResponse(github_token="", llm_provider="deepseek", llm_api_key="")
+        return SettingsResponse(github_token="", llm_provider="deepseek", llm_api_key="", llm_base_url="", llm_model="")
     def mask(s: str) -> str:
         if not s or len(s) <= 4:
             return "***" if s else ""
@@ -301,6 +305,8 @@ async def get_settings(user: User = Depends(get_current_user_required), db: Sess
         github_token=mask(settings.github_token or ""),
         llm_provider=settings.llm_provider or "deepseek",
         llm_api_key=mask(settings.llm_api_key or ""),
+        llm_base_url=getattr(settings, "llm_base_url", None) or "",
+        llm_model=getattr(settings, "llm_model", None) or "",
     )
 
 
@@ -323,6 +329,10 @@ async def update_settings(
         settings.llm_provider = data.llm_provider
     if data.llm_api_key is not None:
         settings.llm_api_key = data.llm_api_key
+    if data.llm_base_url is not None:
+        settings.llm_base_url = data.llm_base_url
+    if data.llm_model is not None:
+        settings.llm_model = data.llm_model
     db.commit()
     return {"ok": True}
 
@@ -352,6 +362,8 @@ def _agent_for_user(db: Session, user: User) -> Optional[HubMindAgent]:
         provider=settings.llm_provider or Config.LLM_PROVIDER,
         github_token=settings.github_token or None,
         llm_api_key=settings.llm_api_key or None,
+        llm_base_url=settings.llm_base_url or None,
+        llm_model=settings.llm_model or None,
     )
 
 
@@ -363,6 +375,8 @@ def _qa_agent_for_user(db: Session, user: User) -> Optional[HubMindQAAgent]:
         provider=settings.llm_provider or Config.LLM_PROVIDER,
         github_token=settings.github_token or None,
         llm_api_key=settings.llm_api_key or None,
+        llm_base_url=settings.llm_base_url or None,
+        llm_model=settings.llm_model or None,
     )
 
 

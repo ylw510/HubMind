@@ -28,27 +28,36 @@ class HubMindAgent:
         temperature: float = 0.3,
         github_token: Optional[str] = None,
         llm_api_key: Optional[str] = None,
+        llm_base_url: Optional[str] = None,
+        llm_model: Optional[str] = None,
     ):
         """
         Initialize HubMind Agent
 
         Args:
-            provider: LLM provider (openai, anthropic, google, azure, ollama, groq, deepseek)
-            model_name: Model name (optional, uses provider default if not provided)
+            provider: LLM provider (openai, anthropic, google, azure, ollama, groq, deepseek, openai_compatible)
+            model_name: Model name (optional)
             temperature: Model temperature
-            github_token: Optional override for GitHub token (e.g. from user settings)
-            llm_api_key: Optional override for LLM API key (e.g. from user settings)
+            github_token: Optional override for GitHub token
+            llm_api_key: Optional override for LLM API key
+            llm_base_url: For openai_compatible provider
+            llm_model: For openai_compatible provider (model name)
         """
         use_overrides = bool(github_token and llm_api_key)
         if not use_overrides:
             Config.validate()
 
-        provider = provider or Config.LLM_PROVIDER
-        model_name = model_name or Config.LLM_MODEL or None
+        provider = (provider or Config.LLM_PROVIDER).lower()
+        model_name = model_name or Config.LLM_MODEL or llm_model or None
 
         llm_kwargs = {}
         if llm_api_key:
             llm_kwargs["api_key"] = llm_api_key
+        if provider == "openai_compatible" and llm_base_url:
+            llm_kwargs["base_url"] = llm_base_url.rstrip("/")
+        if provider == "openai_compatible" and (llm_model or model_name):
+            llm_kwargs["model"] = llm_model or model_name
+            model_name = llm_model or model_name
 
         self.llm = LLMFactory.create_llm(
             provider=provider,
@@ -167,7 +176,7 @@ Always be helpful, concise, and provide actionable insights. When showing result
         # Most modern LLMs support tool calling
         # OpenAI, Anthropic, Google Gemini, DeepSeek, etc. all support it
         provider = Config.LLM_PROVIDER.lower()
-        tool_calling_providers = ["deepseek", "openai", "anthropic", "google", "azure", "groq"]
+        tool_calling_providers = ["deepseek", "openai", "anthropic", "google", "azure", "groq", "openai_compatible"]
         return provider in tool_calling_providers
 
     # Tool wrapper methods

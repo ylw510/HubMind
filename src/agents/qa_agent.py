@@ -22,26 +22,35 @@ class HubMindQAAgent:
         model_name: Optional[str] = None,
         github_token: Optional[str] = None,
         llm_api_key: Optional[str] = None,
+        llm_base_url: Optional[str] = None,
+        llm_model: Optional[str] = None,
     ):
         """
         Initialize QA Agent
 
         Args:
-            provider: LLM provider (openai, anthropic, google, azure, ollama, groq, deepseek)
-            model_name: Model name (optional, uses provider default if not provided)
+            provider: LLM provider (openai, anthropic, google, azure, ollama, groq, deepseek, openai_compatible)
+            model_name: Model name (optional)
             github_token: Optional override for GitHub token
             llm_api_key: Optional override for LLM API key
+            llm_base_url: For openai_compatible provider
+            llm_model: For openai_compatible provider (model name)
         """
         use_overrides = bool(github_token and llm_api_key)
         if not use_overrides:
             Config.validate()
 
-        provider = provider or Config.LLM_PROVIDER
-        model_name = model_name or Config.LLM_MODEL or None
+        provider = (provider or Config.LLM_PROVIDER).lower()
+        model_name = model_name or Config.LLM_MODEL or llm_model or None
 
         llm_kwargs = {}
         if llm_api_key:
             llm_kwargs["api_key"] = llm_api_key
+        if provider == "openai_compatible" and llm_base_url:
+            llm_kwargs["base_url"] = llm_base_url.rstrip("/")
+        if provider == "openai_compatible" and (llm_model or model_name):
+            llm_kwargs["model"] = llm_model or model_name
+            model_name = llm_model or model_name
 
         self.llm = LLMFactory.create_llm(
             provider=provider,

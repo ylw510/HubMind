@@ -7,14 +7,18 @@ const LLM_PROVIDERS = [
   { value: 'openai', label: 'OpenAI' },
   { value: 'anthropic', label: 'Anthropic Claude' },
   { value: 'google', label: 'Google Gemini' },
+  { value: 'azure', label: 'Azure OpenAI' },
   { value: 'groq', label: 'Groq' },
   { value: 'ollama', label: 'Ollama (本地)' },
+  { value: 'openai_compatible', label: '自定义 (OpenAI 兼容 API)' },
 ]
 
 function SettingsPage() {
   const [githubToken, setGithubToken] = useState('')
   const [llmProvider, setLlmProvider] = useState('deepseek')
   const [llmApiKey, setLlmApiKey] = useState('')
+  const [llmBaseUrl, setLlmBaseUrl] = useState('')
+  const [llmModel, setLlmModel] = useState('')
   const [hasGithubToken, setHasGithubToken] = useState(false)
   const [hasLlmKey, setHasLlmKey] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -31,6 +35,8 @@ function SettingsPage() {
     api.get('/api/settings')
       .then((res) => {
         setLlmProvider(res.data.llm_provider || 'deepseek')
+        setLlmBaseUrl(res.data.llm_base_url || '')
+        setLlmModel(res.data.llm_model || '')
         setHasGithubToken(!!(res.data.github_token && res.data.github_token.startsWith('***')))
         setHasLlmKey(!!(res.data.llm_api_key && res.data.llm_api_key.startsWith('***')))
       })
@@ -47,6 +53,7 @@ function SettingsPage() {
         ...(githubToken ? { github_token: githubToken } : {}),
         llm_provider: llmProvider,
         ...(llmApiKey ? { llm_api_key: llmApiKey } : {}),
+        ...(llmProvider === 'openai_compatible' ? { llm_base_url: llmBaseUrl.trim(), llm_model: llmModel.trim() } : {}),
       })
       setMessage({ type: 'success', text: '设置已保存' })
     } catch (err) {
@@ -128,6 +135,29 @@ function SettingsPage() {
               <option key={p.value} value={p.value}>{p.label}</option>
             ))}
           </select>
+          {llmProvider === 'openai_compatible' && (
+            <>
+              <input
+                type="url"
+                className="input"
+                placeholder="API 地址 (base_url)，如 https://api.example.com/v1"
+                value={llmBaseUrl}
+                onChange={(e) => setLlmBaseUrl(e.target.value)}
+                autoComplete="off"
+                style={{ marginTop: '8px' }}
+              />
+              <input
+                type="text"
+                className="input"
+                placeholder="模型名称 (model_name)，必填"
+                value={llmModel}
+                onChange={(e) => setLlmModel(e.target.value)}
+                autoComplete="off"
+                style={{ marginTop: '6px' }}
+              />
+              <p className="settings-hint">任意兼容 OpenAI 格式的 API，填写 base_url 与模型名</p>
+            </>
+          )}
         </div>
 
         <div className="settings-section">

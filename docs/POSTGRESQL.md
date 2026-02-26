@@ -109,7 +109,13 @@ DATABASE_URL=postgresql://hubmind:你的密码@localhost:5432/hubmind
 | `github_token`| Text    | GitHub Token            |
 | `llm_provider`| String(32) | LLM 提供商，默认 deepseek |
 | `llm_api_key` | Text    | LLM API Key             |
+| `llm_base_url`| Text    | 自定义 LLM API 地址（openai_compatible） |
+| `llm_model`   | String(128) | 自定义模型名（openai_compatible） |
 | `updated_at`  | DateTime | 最后更新时间           |
+
+若 `user_settings` 表已存在，需手动加列：  
+`ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS llm_base_url TEXT DEFAULT '';`  
+`ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS llm_model VARCHAR(128) DEFAULT '';`
 
 ---
 

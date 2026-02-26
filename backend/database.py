@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 _env_path = _backend_dir / ".env"
 load_dotenv(_env_path, override=True)
 
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, ForeignKey, Text
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, ForeignKey, Text, text
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 
 def _url_has_password(url: str) -> bool:
@@ -74,14 +74,25 @@ class UserSettings(Base):
     github_token = Column(Text, default="")
     llm_provider = Column(String(32), default="deepseek")
     llm_api_key = Column(Text, default="")
+    llm_base_url = Column(Text, default="")   # for openai_compatible
+    llm_model = Column(String(128), default="")  # for openai_compatible
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     user = relationship("User", back_populates="settings")
 
 
 def init_db():
-    """创建所有表"""
+    """创建所有表，并为已有表补充新列（兼容旧库）"""
     Base.metadata.create_all(bind=engine)
+    # 兼容旧库：若 user_settings 已存在但缺少新列则自动添加（PostgreSQL）
+    if engine.dialect.name == "postgresql":
+        try:
+            with engine.connect() as conn:
+                conn.execute(text("ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS llm_base_url TEXT DEFAULT ''"))
+                conn.execute(text("ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS llm_model VARCHAR(128) DEFAULT ''"))
+                conn.commit()
+        except Exception:
+            pass
 
 
 def get_db():

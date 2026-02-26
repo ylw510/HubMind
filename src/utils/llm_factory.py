@@ -4,39 +4,48 @@ LLM Factory - Support for multiple LLM providers using LangChain Model I/O
 This module leverages LangChain's Model I/O abstraction to provide a unified
 interface for different LLM providers. All LLMs implement BaseChatModel,
 ensuring consistent behavior across providers.
+
+Supports:
+- Built-in providers via registry (deepseek, openai, anthropic, google, azure, ollama, groq).
+- openai_compatible: any OpenAI-compatible API (base_url + api_key + model_name).
+- Custom providers via LLMFactory.register(name, creator_fn).
 """
 import os
-from typing import Optional, Any, Dict
+from typing import Optional, Any, Dict, Callable
 from langchain_core.language_models import BaseChatModel
 import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent.parent))
 from config import Config
 
+# Type for provider creator: (model_name, temperature, **kwargs) -> BaseChatModel
+_CreatorFn = Callable[..., BaseChatModel]
+
 
 class LLMFactory:
     """
     Factory class for creating LLM instances from different providers
 
-    Uses LangChain's Model I/O abstraction (BaseChatModel) to provide
-    a unified interface. All LLMs are interchangeable through this interface.
+    Uses a registry: built-in providers are registered at import time.
+    Use openai_compatible for any OpenAI-compatible API, or register()
+    to add custom providers without editing this file.
 
     Example:
-        # Same code works with any provider
         llm = LLMFactory.create_llm(provider="openai")
-        llm = LLMFactory.create_llm(provider="anthropic")
-        llm = LLMFactory.create_llm(provider="ollama")
-
-        # All return BaseChatModel, can be used identically
-        response = llm.invoke("Hello")
+        llm = LLMFactory.create_llm(
+            provider="openai_compatible",
+            model_name="my-model",
+            base_url="https://api.example.com/v1",
+            api_key="sk-...",
+        )
     """
 
-    # Provider configuration mapping
+    # Provider configuration (default models, env hints; registry holds creators)
     PROVIDER_CONFIGS: Dict[str, Dict[str, Any]] = {
         "deepseek": {
             "default_model": "deepseek-chat",
             "api_key_env": "DEEPSEEK_API_KEY",
-            "package": "langchain-openai",  # Uses OpenAI-compatible API
+            "package": "langchain-openai",
         },
         "openai": {
             "default_model": "gpt-4-turbo-preview",
@@ -60,7 +69,7 @@ class LLMFactory:
         },
         "ollama": {
             "default_model": "llama2",
-            "api_key_env": None,  # No API key needed
+            "api_key_env": None,
             "package": "langchain-ollama",
         },
         "groq": {
@@ -68,78 +77,62 @@ class LLMFactory:
             "api_key_env": "GROQ_API_KEY",
             "package": "langchain-groq",
         },
+        "openai_compatible": {
+            "default_model": "",  # caller must pass model_name or kwargs["model"]
+            "api_key_env": None,
+            "package": "langchain-openai",
+        },
     }
 
-    @staticmethod
+    # Registry: provider_name -> creator(model_name, temperature, **kwargs) -> BaseChatModel
+    _CREATORS: Dict[str, _CreatorFn] = {}
+
+    @classmethod
+    def register(cls, name: str, creator: _CreatorFn) -> None:
+        """Register a provider. name is case-insensitive (stored lower)."""
+        cls._CREATORS[name.lower()] = creator
+
+    @classmethod
     def create_llm(
+        cls,
         provider: str = "openai",
         model_name: Optional[str] = None,
         temperature: float = 0.3,
         **kwargs
     ) -> BaseChatModel:
         """
-        Create an LLM instance using LangChain Model I/O unified interface
+        Create an LLM instance using LangChain Model I/O unified interface.
 
-        All providers return BaseChatModel, ensuring consistent behavior.
-        The same code works with any provider - just change the provider parameter.
-
-        Supported providers:
-        - deepseek: DeepSeek models (default, OpenAI-compatible)
-        - openai: OpenAI models (GPT-4, GPT-3.5, etc.)
-        - anthropic: Anthropic Claude models
-        - google: Google Gemini models
-        - azure: Azure OpenAI
-        - ollama: Local Ollama models
-        - groq: Groq models
+        Providers are resolved from the registry. Built-in: deepseek, openai,
+        anthropic, google, azure, ollama, groq. Use provider="openai_compatible"
+        for any OpenAI-compatible API (pass base_url, api_key, model_name in kwargs).
+        Add custom providers with LLMFactory.register(name, creator_fn).
 
         Args:
-            provider: LLM provider name
-            model_name: Model name (optional, uses provider default if not provided)
+            provider: LLM provider name (case-insensitive)
+            model_name: Model name (optional; uses provider default when available)
             temperature: Model temperature
-            **kwargs: Additional provider-specific arguments
+            **kwargs: Provider-specific (e.g. api_key, base_url for openai_compatible)
 
         Returns:
-            BaseChatModel instance (LangChain Model I/O interface)
-
-        Example:
-            # Works with any provider - same interface
-            llm1 = LLMFactory.create_llm(provider="openai")
-            llm2 = LLMFactory.create_llm(provider="anthropic")
-            llm3 = LLMFactory.create_llm(provider="ollama")
-
-            # All can be used identically
-            response1 = llm1.invoke("Hello")
-            response2 = llm2.invoke("Hello")
-            response3 = llm3.invoke("Hello")
+            BaseChatModel instance
         """
         provider = provider.lower()
 
-        if provider not in LLMFactory.PROVIDER_CONFIGS:
-            supported = ", ".join(LLMFactory.PROVIDER_CONFIGS.keys())
+        if provider not in cls._CREATORS:
+            supported = ", ".join(sorted(cls._CREATORS.keys()))
             raise ValueError(
                 f"Unsupported provider: {provider}. "
-                f"Supported providers: {supported}"
+                f"Registered providers: {supported}. "
+                "Use provider='openai_compatible' with base_url, api_key, model_name for custom APIs."
             )
 
-        # Use default model if not specified
-        if not model_name:
-            model_name = LLMFactory.PROVIDER_CONFIGS[provider]["default_model"]
+        # Default model from config when not specified
+        if not model_name and provider in cls.PROVIDER_CONFIGS:
+            model_name = cls.PROVIDER_CONFIGS[provider].get("default_model") or None
 
-        # Route to provider-specific creation method
-        if provider == "deepseek":
-            return LLMFactory._create_deepseek(model_name, temperature, **kwargs)
-        elif provider == "openai":
-            return LLMFactory._create_openai(model_name, temperature, **kwargs)
-        elif provider == "anthropic":
-            return LLMFactory._create_anthropic(model_name, temperature, **kwargs)
-        elif provider == "google":
-            return LLMFactory._create_google(model_name, temperature, **kwargs)
-        elif provider == "azure":
-            return LLMFactory._create_azure(model_name, temperature, **kwargs)
-        elif provider == "ollama":
-            return LLMFactory._create_ollama(model_name, temperature, **kwargs)
-        elif provider == "groq":
-            return LLMFactory._create_groq(model_name, temperature, **kwargs)
+        creator = cls._CREATORS[provider]
+        return creator(model_name, temperature, **kwargs)
 
     @staticmethod
     def _create_deepseek(
@@ -311,3 +304,62 @@ class LLMFactory:
             groq_api_key=api_key,
             **{k: v for k, v in kwargs.items() if k != "api_key"}
         )
+
+    @staticmethod
+    def _create_openai_compatible(
+        model_name: Optional[str],
+        temperature: float,
+        **kwargs
+    ) -> BaseChatModel:
+        """
+        Create LLM for any OpenAI-compatible API (e.g. Moonshot, 智谱, OpenRouter).
+        Requires base_url, api_key, and model (or model_name) in kwargs or env.
+        """
+        from langchain_openai import ChatOpenAI
+
+        base_url = kwargs.get("base_url") or os.getenv("OPENAI_COMPATIBLE_BASE_URL")
+        api_key = kwargs.get("api_key") or os.getenv("OPENAI_COMPATIBLE_API_KEY")
+        model = (
+            model_name
+            or kwargs.get("model")
+            or kwargs.get("model_name")
+        )
+
+        if not base_url:
+            raise ValueError(
+                "base_url is required for openai_compatible provider "
+                "(pass in kwargs or set OPENAI_COMPATIBLE_BASE_URL)"
+            )
+        if not api_key:
+            raise ValueError(
+                "api_key is required for openai_compatible provider "
+                "(pass in kwargs or set OPENAI_COMPATIBLE_API_KEY)"
+            )
+        if not model:
+            raise ValueError(
+                "model_name (or model) is required for openai_compatible provider"
+            )
+
+        passthrough = {k: v for k, v in kwargs.items() if k not in ("base_url", "api_key", "model", "model_name")}
+        return ChatOpenAI(
+            model=model,
+            temperature=temperature,
+            api_key=api_key,
+            base_url=base_url.rstrip("/"),
+            **passthrough
+        )
+
+
+def _register_builtins() -> None:
+    """Register all built-in providers so create_llm() resolves by name."""
+    LLMFactory.register("deepseek", LLMFactory._create_deepseek)
+    LLMFactory.register("openai", LLMFactory._create_openai)
+    LLMFactory.register("anthropic", LLMFactory._create_anthropic)
+    LLMFactory.register("google", LLMFactory._create_google)
+    LLMFactory.register("azure", LLMFactory._create_azure)
+    LLMFactory.register("ollama", LLMFactory._create_ollama)
+    LLMFactory.register("groq", LLMFactory._create_groq)
+    LLMFactory.register("openai_compatible", LLMFactory._create_openai_compatible)
+
+
+_register_builtins()

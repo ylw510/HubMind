@@ -444,24 +444,35 @@ async def get_trending(
     user: Optional[User] = Depends(get_current_user_optional),
     db: Session = Depends(get_db),
 ):
-    """Get trending repositories"""
+    """Get trending repositories（抓取 GitHub Trending 页 + AI 总结）"""
     try:
         if user:
             settings = get_user_settings(db, user.id)
-            token = (settings.github_token or "") if settings else ""
-            tool = GitHubTrendingTool(github_token=token) if token else get_trending_tool()
+            if settings:
+                tool = GitHubTrendingTool(
+                    github_token=settings.github_token or None,
+                    llm_provider=settings.llm_provider or None,
+                    llm_api_key=settings.llm_api_key or None,
+                )
+            else:
+                tool = get_trending_tool()
         else:
             tool = get_trending_tool()
         repos = tool.get_trending_repos(
             language=request.language,
             since=request.since,
-            limit=request.limit
+            limit=request.limit,
         )
-        summary = tool.get_trending_summary(repos)
+        summary = tool.get_trending_summary(
+            repos,
+            language=request.language,
+            since=request.since,
+            use_llm=True,
+        )
         return {
             "repos": repos,
             "summary": summary,
-            "count": len(repos)
+            "count": len(repos),
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

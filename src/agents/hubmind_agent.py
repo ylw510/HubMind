@@ -66,8 +66,12 @@ class HubMindAgent:
             **llm_kwargs
         )
 
-        # Initialize tools (with optional user github token)
-        self.trending_tool = GitHubTrendingTool(github_token=github_token)
+        # Initialize tools (with optional user github token；trending 总结使用同套 LLM)
+        self.trending_tool = GitHubTrendingTool(
+            github_token=github_token,
+            llm_provider=provider,
+            llm_api_key=llm_api_key,
+        )
         self.pr_tool = GitHubPRTool(github_token=github_token)
         self.issue_tool = GitHubIssueTool(github_token=github_token)
 
@@ -181,20 +185,24 @@ Always be helpful, concise, and provide actionable insights. When showing result
 
     # Tool wrapper methods
     def _get_trending_repos_wrapper(self, input_str: str) -> str:
-        """Wrapper for get_trending_repos tool"""
+        """Wrapper for get_trending_repos tool（抓取 trending 页 -> AI 总结）"""
         import json
         try:
             params = json.loads(input_str)
+            language = params.get("language")
+            since = params.get("since", "daily")
+            limit = params.get("limit", 10)
             repos = self.trending_tool.get_trending_repos(
-                language=params.get("language"),
-                since=params.get("since", "daily"),
-                limit=params.get("limit", 10)
+                language=language,
+                since=since,
+                limit=limit,
             )
-            return self.trending_tool.get_trending_summary(repos)
+            return self.trending_tool.get_trending_summary(
+                repos, language=language, since=since, use_llm=True
+            )
         except json.JSONDecodeError:
-            # If not JSON, try as simple string
             repos = self.trending_tool.get_trending_repos(limit=10)
-            return self.trending_tool.get_trending_summary(repos)
+            return self.trending_tool.get_trending_summary(repos, use_llm=True)
         except Exception as e:
             return f"Error: {str(e)}"
 

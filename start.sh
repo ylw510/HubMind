@@ -9,17 +9,34 @@ echo "🔍 检查端口占用..."
 if command -v lsof >/dev/null 2>&1; then
   if lsof -ti:8000 >/dev/null 2>&1; then
     echo "⚠️  端口 8000 被占用，停止旧的后端服务..."
-    pkill -f "python.*main.py" 2>/dev/null || true
+    pkill -9 -f "python.*main.py" 2>/dev/null || true
+    pkill -9 -f "uvicorn.*main:app" 2>/dev/null || true
     sleep 2
+    # 再次检查，如果仍被占用，强制杀死
+    if lsof -ti:8000 >/dev/null 2>&1; then
+      echo "⚠️  强制停止占用端口 8000 的进程..."
+      lsof -ti:8000 | xargs -r kill -9 2>/dev/null || true
+      sleep 1
+    fi
   fi
   if lsof -ti:3000 >/dev/null 2>&1; then
     echo "⚠️  端口 3000 被占用，停止旧的前端服务..."
-    pkill -f "vite" 2>/dev/null || true
-    pkill -f "node.*vite" 2>/dev/null || true
+    pkill -9 -f "vite" 2>/dev/null || true
+    pkill -9 -f "node.*vite" 2>/dev/null || true
     sleep 2
+    # 再次检查，如果仍被占用，强制杀死
+    if lsof -ti:3000 >/dev/null 2>&1; then
+      echo "⚠️  强制停止占用端口 3000 的进程..."
+      lsof -ti:3000 | xargs -r kill -9 2>/dev/null || true
+      sleep 1
+    fi
   fi
 else
-  echo "⚠️  未安装 lsof，跳过端口检查"
+  echo "⚠️  未安装 lsof，尝试停止可能的进程..."
+  pkill -9 -f "python.*main.py" 2>/dev/null || true
+  pkill -9 -f "uvicorn.*main:app" 2>/dev/null || true
+  pkill -9 -f "vite" 2>/dev/null || true
+  sleep 2
 fi
 echo ""
 

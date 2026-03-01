@@ -56,6 +56,15 @@ function SettingsPage() {
         ...(llmProvider === 'openai_compatible' ? { llm_base_url: llmBaseUrl.trim(), llm_model: llmModel.trim() } : {}),
       })
       setMessage({ type: 'success', text: '设置已保存' })
+      // 清空输入框
+      if (githubToken) {
+        setGithubToken('')
+        setHasGithubToken(true)
+      }
+      if (llmApiKey) {
+        setLlmApiKey('')
+        setHasLlmKey(true)
+      }
     } catch (err) {
       setMessage({ type: 'error', text: err.response?.data?.detail || '保存失败' })
     } finally {

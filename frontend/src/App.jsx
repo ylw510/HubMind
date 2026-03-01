@@ -1,14 +1,8 @@
 import React from 'react'
 import { BrowserRouter as Router, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom'
-import { MessageSquare, TrendingUp, GitPullRequest, FileText, Heart, HelpCircle, Github, Settings, LogOut } from 'lucide-react'
+import { MessageSquare, Settings, LogOut } from 'lucide-react'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import ChatPage from './pages/ChatPage'
-import TrendingPage from './pages/TrendingPage'
-import PRPage from './pages/PRPage'
-import IssuePage from './pages/IssuePage'
-import HealthPage from './pages/HealthPage'
-import QAPage from './pages/QAPage'
-import GitHubBrowserPage from './pages/GitHubBrowserPage'
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
 import SettingsPage from './pages/SettingsPage'
@@ -20,12 +14,6 @@ function NavBar() {
 
   const navItems = [
     { path: '/', icon: MessageSquare, label: '对话', name: 'chat' },
-    { path: '/trending', icon: TrendingUp, label: '热门项目', name: 'trending' },
-    { path: '/github', icon: Github, label: 'GitHub浏览器', name: 'github' },
-    { path: '/prs', icon: GitPullRequest, label: 'PR分析', name: 'prs' },
-    { path: '/issues', icon: FileText, label: 'Issue管理', name: 'issues' },
-    { path: '/health', icon: Heart, label: '健康度', name: 'health' },
-    { path: '/qa', icon: HelpCircle, label: '问答', name: 'qa' },
     { path: '/settings', icon: Settings, label: '设置', name: 'settings' },
   ]
 
@@ -62,6 +50,8 @@ function NavBar() {
 
 function ProtectedLayout({ children }) {
   const { token, loading } = useAuth()
+  const location = useLocation()
+  const isChatPage = location.pathname === '/'
 
   if (loading) {
     return (
@@ -77,10 +67,22 @@ function ProtectedLayout({ children }) {
     return <Navigate to="/login" replace />
   }
 
+  // ChatPage 使用自己的布局，不显示 NavBar
+  if (isChatPage) {
+    return (
+      <div className="app" style={{ display: 'block' }}>
+        <main className="main-content">
+          {children}
+        </main>
+      </div>
+    )
+  }
+
+  // 其他页面显示 NavBar
   return (
     <div className="app">
       <NavBar />
-      <main className="main-content">
+      <main className="main-content settings-layout" style={{ marginLeft: '260px' }}>
         {children}
       </main>
     </div>
@@ -93,12 +95,6 @@ function AppRoutes() {
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
       <Route path="/" element={<ProtectedLayout><ChatPage /></ProtectedLayout>} />
-      <Route path="/trending" element={<ProtectedLayout><TrendingPage /></ProtectedLayout>} />
-      <Route path="/github" element={<ProtectedLayout><GitHubBrowserPage /></ProtectedLayout>} />
-      <Route path="/prs" element={<ProtectedLayout><PRPage /></ProtectedLayout>} />
-      <Route path="/issues" element={<ProtectedLayout><IssuePage /></ProtectedLayout>} />
-      <Route path="/health" element={<ProtectedLayout><HealthPage /></ProtectedLayout>} />
-      <Route path="/qa" element={<ProtectedLayout><QAPage /></ProtectedLayout>} />
       <Route path="/settings" element={<ProtectedLayout><SettingsPage /></ProtectedLayout>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

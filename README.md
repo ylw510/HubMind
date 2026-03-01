@@ -30,6 +30,7 @@ HubMind is an intelligent agent that helps you discover trending repositories, a
 ### Prerequisites
 
 - Python 3.8+
+- PostgreSQL 14+ (用于 Web 版用户认证和设置存储)
 - GitHub Personal Access Token
 - LLM API Key (支持多种提供商，见下方说明)
 
@@ -78,7 +79,35 @@ HubMind 支持多种 LLM 提供商：
 6. **Ollama** (本地) - 无需 API key，安装：`pip install langchain-ollama`
 7. **Groq** - 需要 `GROQ_API_KEY`，安装：`pip install langchain-groq`
 
-详细说明请查看 [LLM_SUPPORT.md](LLM_SUPPORT.md)
+详细说明请查看：
+- [LLM_SUPPORT.md](LLM_SUPPORT.md) - 所有 LLM 提供商配置
+- [docs/DEEPSEEK.md](docs/DEEPSEEK.md) - DeepSeek 快速配置指南
+
+**PostgreSQL 配置（Web 版必需）：**
+
+HubMind Web 版使用 PostgreSQL 存储用户账号和设置。如果只使用 CLI 版本，可以跳过此步骤。
+
+快速安装 PostgreSQL：
+
+```bash
+# Ubuntu/Debian
+sudo apt update
+sudo apt install postgresql postgresql-contrib
+sudo systemctl start postgresql
+
+# 创建数据库和用户
+sudo -u postgres psql -c "CREATE DATABASE hubmind;"
+sudo -u postgres psql -c "CREATE USER hubmind_user WITH PASSWORD 'hubmind_pass';"
+sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE hubmind TO hubmind_user;"
+```
+
+在 `backend/.env` 中配置：
+
+```env
+DATABASE_URL=postgresql://hubmind_user:hubmind_pass@localhost:5432/hubmind
+```
+
+详细说明请查看 [docs/POSTGRESQL.md](docs/POSTGRESQL.md)
 
 ## 🎮 Usage
 
@@ -160,23 +189,32 @@ python main.py watch "microsoft/vscode,facebook/react,vercel/next.js" --hours 24
 
 ### Interactive Mode
 
-Start an interactive chat session:
+启动交互式对话模式，使用自然语言与 HubMind 交流：
 
 ```bash
 python main.py interactive
 ```
 
-Example conversation:
-```
-You: Show me today's top 10 trending Python projects
-HubMind: [Fetches and displays trending Python repositories]
+**对话示例：**
 
-You: What are the most valuable PRs in microsoft/vscode today?
-HubMind: [Analyzes and shows valuable PRs with scores]
-
-You: Create an issue in my-repo/awesome-project saying "Add support for Python 3.12"
-HubMind: [Creates the issue and shows the result]
 ```
+You: 给我看看今天最火的 5 个 Python 项目
+HubMind: [显示 5 个热门 Python 项目]
+
+You: microsoft/vscode 今天有什么重要的 PR 吗？
+HubMind: [显示有价值的 PR 列表]
+
+You: 在 my-repo/awesome-project 创建一个 issue，说"添加 Python 3.12 支持"
+HubMind: [创建 issue 并显示结果]
+
+You: 那 Python 的呢？
+HubMind: [基于上下文，显示 Python 热门项目]
+```
+
+**对话模式优势：**
+- 自然语言交互，无需记住具体命令格式
+- 上下文理解，可以基于之前的对话继续提问
+- 智能解析，自动理解意图并调用合适的工具
 
 ## 🏗️ Architecture
 
@@ -332,12 +370,13 @@ Then ask:
 python main.py health microsoft/vscode --days 30
 ```
 
-## 🔒 Security Notes
+## 🔒 安全注意事项
 
-- Never commit your `.env` file
-- Keep your GitHub token secure
-- Use tokens with minimal required permissions
-- Rotate tokens regularly
+- **永远不要提交 `.env` 文件**到版本控制系统
+- 妥善保管 GitHub token 和 LLM API keys
+- 使用最小必要权限的 token
+- 定期轮换 token
+- 不要在公共场合分享 API keys
 
 ## 🤝 Contributing
 
@@ -347,11 +386,11 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 This project is open source and available under the MIT License.
 
-## 🤖 LLM Support
+## 🤖 LLM 支持
 
 HubMind 支持多种 LLM 提供商，你可以根据需求选择：
 
-- **DeepSeek** ⭐ (默认) - 性价比高，中文和代码能力强
+- **DeepSeek** ⭐ (默认) - 性价比高，中文和代码能力强，[配置指南](docs/DEEPSEEK.md)
 - **OpenAI** (GPT-4, GPT-3.5) - 高质量输出
 - **Anthropic** (Claude) - 优秀的长文本处理
 - **Google** (Gemini) - 性价比高
@@ -368,9 +407,10 @@ HubMind 充分利用 **LangChain Model I/O** 模块，实现了**一份代码支
 - 切换 LLM 只需改变 `provider` 参数
 - 统一的调用接口：`invoke()`, `stream()`, `batch()` 等
 
-详细说明请查看：
-- [LLM_SUPPORT.md](LLM_SUPPORT.md) - 各提供商配置说明
-- [docs/MODEL_IO.md](docs/MODEL_IO.md) - Model I/O 统一接口设计
+**详细文档：**
+- [LLM_SUPPORT.md](LLM_SUPPORT.md) - 各提供商详细配置说明
+- [docs/DEEPSEEK.md](docs/DEEPSEEK.md) - DeepSeek 快速配置指南
+- [docs/MODEL_IO.md](docs/MODEL_IO.md) - Model I/O 统一接口技术文档
 
 ## 🙏 Acknowledgments
 
@@ -379,9 +419,20 @@ HubMind 充分利用 **LangChain Model I/O** 模块，实现了**一份代码支
 - CLI powered by [Typer](https://typer.tiangolo.com/) and [Rich](https://rich.readthedocs.io/)
 - Supports multiple LLM providers for flexibility
 
-## 📧 Support
+## 📚 更多文档
 
-For issues, questions, or suggestions, please open an issue on GitHub.
+- [QUICKSTART.md](QUICKSTART.md) - 5 分钟快速开始指南
+- [WEB_README.md](WEB_README.md) - Web 界面使用指南
+- [LLM_SUPPORT.md](LLM_SUPPORT.md) - LLM 提供商配置说明
+- [docs/DEEPSEEK.md](docs/DEEPSEEK.md) - DeepSeek 配置指南
+- [docs/POSTGRESQL.md](docs/POSTGRESQL.md) - PostgreSQL 详细配置
+- [docs/POSTGRESQL_QUICK_SETUP.md](docs/POSTGRESQL_QUICK_SETUP.md) - PostgreSQL 快速安装
+- [docs/MODEL_IO.md](docs/MODEL_IO.md) - Model I/O 技术文档
+- [CHANGELOG.md](CHANGELOG.md) - 更新日志
+
+## 📧 支持
+
+如有问题、建议或反馈，请在 GitHub 上提交 Issue。
 
 ---
 

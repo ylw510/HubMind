@@ -60,10 +60,116 @@ export function checkBackendHealth() {
 }
 
 export const chatAPI = {
-  chat: async (message, chatHistory = []) => {
-    const response = await api.post('/api/chat', {
-      message,
-      chat_history: chatHistory,
+  chat: async (message, chatHistory = [], repo = null, sessionId = null, onChunk = null) => {
+    // 如果 sessionId 是 'current' 或无效值，转换为 null
+    const validSessionId = (sessionId && sessionId !== 'current' && typeof sessionId === 'number') ? sessionId : null
+
+    // 如果提供了 onChunk 回调，使用流式模式
+    if (onChunk) {
+      return new Promise((resolve, reject) => {
+        const token = localStorage.getItem('hubmind_token')
+        const baseURL = getStoredApiUrl()
+
+        fetch(`${baseURL}/api/chat`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({
+            message,
+            chat_history: chatHistory,
+            repo: repo || null,
+            session_id: validSessionId,
+          }),
+        })
+          .then(async (response) => {
+            if (!response.ok) {
+              throw new Error(`HTTP error! status: ${response.status}`)
+            }
+
+            const reader = response.body.getReader()
+            const decoder = new TextDecoder()
+            let fullResponse = ''
+            let buffer = ''
+
+            while (true) {
+              const { done, value } = await reader.read()
+              if (done) break
+
+              buffer += decoder.decode(value, { stream: true })
+              const lines = buffer.split('\n')
+              buffer = lines.pop() || '' // 保留最后一个不完整的行
+
+              for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                  try {
+                    const data = JSON.parse(line.slice(6))
+                    if (data.chunk) {
+                      fullResponse += data.chunk
+                      onChunk(data.chunk, data.done || false)
+                    }
+                    if (data.done) {
+                      resolve({
+                        response: fullResponse,
+                        chat_history: [
+                          ...chatHistory,
+                          { role: 'user', content: message },
+                          { role: 'assistant', content: fullResponse },
+                        ],
+                      })
+                      return
+                    }
+                  } catch (e) {
+                    console.error('Error parsing SSE data:', e)
+                  }
+                }
+              }
+            }
+          })
+          .catch(reject)
+      })
+    } else {
+      // 非流式模式（向后兼容）
+      const response = await api.post('/api/chat', {
+        message,
+        chat_history: chatHistory,
+        repo: repo || null,
+        session_id: validSessionId,
+      })
+      return response.data
+    }
+  },
+  getSessions: async () => {
+    const response = await api.get('/api/chat/sessions')
+    return response.data
+  },
+  getSession: async (sessionId) => {
+    const response = await api.get(`/api/chat/sessions/${sessionId}`)
+    return response.data
+  },
+  createSession: async (title = 'New chat', repo = null) => {
+    const response = await api.post('/api/chat/sessions', {
+      title,
+      repo,
+    })
+    return response.data
+  },
+  updateSession: async (sessionId, title = null, repo = null) => {
+    const response = await api.put(`/api/chat/sessions/${sessionId}`, {
+      title,
+      repo,
+    })
+    return response.data
+  },
+  deleteSession: async (sessionId) => {
+    const response = await api.delete(`/api/chat/sessions/${sessionId}`)
+    return response.data
+  },
+  saveMessages: async (sessionId, messages) => {
+    const response = await api.post(`/api/chat/sessions/${sessionId}/messages`, {
+      session_id: sessionId,
+      messages,
     })
     return response.data
   },
@@ -108,6 +214,31 @@ export const issueAPI = {
     })
     return response.data
   },
+  parseIssue: async (repo, text) => {
+    const response = await api.post('/api/parse-issue', {
+      repo,
+      text,
+    })
+    return response.data
+  },
+  createIssueDraft: async (repo, title, body, assignees = null, labels = null) => {
+    const response = await api.post('/api/create-issue-draft', {
+      repo,
+      title,
+      body,
+      assignees,
+      labels,
+    })
+    return response.data
+  },
+  getRepoLabels: async (repo) => {
+    const response = await api.get(`/api/github/repo-labels?repo=${encodeURIComponent(repo)}`)
+    return response.data
+  },
+  getRepoCollaborators: async (repo) => {
+    const response = await api.get(`/api/github/repo-collaborators?repo=${encodeURIComponent(repo)}`)
+    return response.data
+  },
 }
 
 export const qaAPI = {
@@ -149,6 +280,36 @@ export const githubAPI = {
       repo,
     })
     return response.data
+  },
+  getUserRepos: async () => {
+    try {
+      const response = await api.get('/api/github/user-repos')
+      return response.data
+    } catch (error) {
+      // 返回错误信息，让组件可以显示
+      console.error('获取仓库列表失败:', error)
+      console.error('错误详情:', {
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        data: error.response?.data,
+        message: error.message
+      })
+
+      let errorMessage = '获取仓库列表失败'
+      if (error.response?.status === 404) {
+        errorMessage = 'API 路由未找到。请检查后端服务是否正常运行。'
+      } else if (error.response?.status === 401) {
+        errorMessage = error.response?.data?.detail || '未登录或登录已过期。请重新登录。'
+      } else if (error.response?.status === 400) {
+        errorMessage = error.response?.data?.detail || '未配置 GitHub Token。请在设置页面配置你的 GitHub Token。'
+      } else if (error.response?.data?.detail) {
+        errorMessage = error.response.data.detail
+      } else if (error.message) {
+        errorMessage = error.message
+      }
+
+      return { repos: [], count: 0, error: errorMessage }
+    }
   },
 }
 

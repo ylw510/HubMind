@@ -1,28 +1,28 @@
-/* HubMind Design System — Refined dev-tool aesthetic */
+/* HubMind Design System — Light Theme */
 
 :root {
   /* Surfaces */
-  --bg-base: #0a0e12;
-  --bg-elevated: #111820;
-  --bg-card: #151c24;
-  --bg-hover: #1a222d;
-  --bg-active: #1f2936;
+  --bg-base: #ffffff;
+  --bg-elevated: #f8f9fa;
+  --bg-card: #ffffff;
+  --bg-hover: #f3f4f6;
+  --bg-active: #e5e7eb;
 
   /* Borders */
-  --border-subtle: rgba(255, 255, 255, 0.06);
-  --border-default: rgba(255, 255, 255, 0.09);
-  --border-strong: rgba(255, 255, 255, 0.12);
+  --border-subtle: rgba(0, 0, 0, 0.06);
+  --border-default: rgba(0, 0, 0, 0.09);
+  --border-strong: rgba(0, 0, 0, 0.12);
 
   /* Text */
-  --text-primary: #e6edf3;
-  --text-secondary: #8b9cad;
-  --text-muted: #6b7c8f;
+  --text-primary: #1a1a1a;
+  --text-secondary: #6b7280;
+  --text-muted: #9ca3af;
 
-  /* Accent — teal/cyan (mind, code, clarity) */
-  --accent: #2dd4bf;
-  --accent-dim: rgba(45, 212, 191, 0.15);
-  --accent-hover: #5eead4;
-  --accent-strong: #14b8a6;
+  /* Accent — blue (mind, code, clarity) */
+  --accent: #3b82f6;
+  --accent-dim: rgba(59, 130, 246, 0.15);
+  --accent-hover: #2563eb;
+  --accent-strong: #1d4ed8;
 
   /* Semantic */
   --success: #34d399;
@@ -78,8 +78,8 @@ body::before {
   position: fixed;
   inset: 0;
   background:
-    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(45, 212, 191, 0.06), transparent),
-    radial-gradient(ellipse 60% 40% at 100% 50%, rgba(45, 212, 191, 0.03), transparent);
+    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(59, 130, 246, 0.03), transparent),
+    radial-gradient(ellipse 60% 40% at 100% 50%, rgba(59, 130, 246, 0.02), transparent);
   pointer-events: none;
   z-index: 0;
 }

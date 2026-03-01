@@ -4,7 +4,7 @@ HubMind Main Agent - LangChain Integration
 from typing import List, Dict, Optional, Any
 from langchain.agents import create_agent
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.tools import Tool
+from langchain_core.tools import BaseTool
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.language_models import BaseChatModel
 
@@ -14,8 +14,13 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 from src.tools.github_trending import GitHubTrendingTool
 from src.tools.github_pr import GitHubPRTool
 from src.tools.github_issue import GitHubIssueTool
+from src.tools.langchain_tools import create_github_tools
 from src.utils.llm_factory import LLMFactory
+from src.utils.logger import get_logger
 from config import Config
+
+# Setup logger
+logger = get_logger(__name__)
 
 
 class HubMindAgent:
@@ -75,80 +80,19 @@ class HubMindAgent:
         self.pr_tool = GitHubPRTool(github_token=github_token)
         self.issue_tool = GitHubIssueTool(github_token=github_token)
 
-        # Create LangChain tools
-        self.tools = self._create_tools()
+        # Create LangChain tools using modern @tool decorator
+        self.tools = create_github_tools(
+            trending_tool=self.trending_tool,
+            pr_tool=self.pr_tool,
+            issue_tool=self.issue_tool
+        )
 
         # Create agent using LangChain 1.2+ API
         self.agent = self._create_agent()
 
-    def _create_tools(self) -> List[Tool]:
-        """Create LangChain tools from GitHub tools"""
-        return [
-            Tool(
-                name="get_trending_repos",
-                func=self._get_trending_repos_wrapper,
-                description=(
-                    "Get trending GitHub repositories. "
-                    "Input should be a JSON string with 'language' (optional), 'since' (daily/weekly/monthly), and 'limit' (default 10). "
-                    "Example: '{\"language\": \"python\", \"since\": \"daily\", \"limit\": 10}'"
-                )
-            ),
-            Tool(
-                name="get_valuable_prs",
-                func=self._get_valuable_prs_wrapper,
-                description=(
-                    "Get most valuable pull requests for a repository today. "
-                    "Input should be the repository full name (owner/repo). "
-                    "Example: 'microsoft/vscode'"
-                )
-            ),
-            Tool(
-                name="get_today_prs",
-                func=self._get_today_prs_wrapper,
-                description=(
-                    "Get all pull requests updated today for a repository. "
-                    "Input should be the repository full name (owner/repo). "
-                    "Example: 'facebook/react'"
-                )
-            ),
-            Tool(
-                name="analyze_pr",
-                func=self._analyze_pr_wrapper,
-                description=(
-                    "Get detailed analysis of a specific pull request. "
-                    "Input should be a JSON string with 'repo' and 'pr_number'. "
-                    "Example: '{\"repo\": \"microsoft/vscode\", \"pr_number\": 12345}'"
-                )
-            ),
-            Tool(
-                name="create_issue",
-                func=self._create_issue_wrapper,
-                description=(
-                    "Create a new GitHub issue from natural language text. "
-                    "Input should be a JSON string with 'repo' and 'text'. "
-                    "Optional: 'assignees' (list) and 'labels' (list). "
-                    "Example: '{\"repo\": \"microsoft/vscode\", \"text\": \"Add dark mode support\"}'"
-                )
-            ),
-            Tool(
-                name="get_issues",
-                func=self._get_issues_wrapper,
-                description=(
-                    "Get issues for a repository. "
-                    "Input should be a JSON string with 'repo', 'state' (open/closed/all), and optional 'limit'. "
-                    "Example: '{\"repo\": \"microsoft/vscode\", \"state\": \"open\", \"limit\": 20}'"
-                )
-            ),
-            Tool(
-                name="analyze_trending_reason",
-                func=self._analyze_trending_reason_wrapper,
-                description=(
-                    "Analyze why a repository is trending. "
-                    "Input should be the repository full name (owner/repo). "
-                    "Example: 'openai/gpt-4'"
-                )
-            ),
-        ]
+    # Note: Tools are now created using create_github_tools() from langchain_tools module
+    # This uses LangChain's modern @tool decorator with structured inputs (Pydantic models)
+    # Old wrapper methods have been removed and replaced with structured tool definitions
 
     def _create_agent(self):
         """
@@ -163,7 +107,51 @@ Your capabilities:
 3. Create issues from natural language descriptions
 4. Answer questions about repositories and code
 
-Always be helpful, concise, and provide actionable insights. When showing results, format them nicely with clear sections."""
+**IMPORTANT: Output Format Requirements**
+
+You MUST format your responses using proper Markdown syntax:
+
+1. **Use Headings**: Always use proper heading hierarchy
+   - Use `# Title` for main titles (level 1)
+   - Use `## Section` for major sections (level 2)
+   - Use `### Subsection` for subsections (level 3)
+   - Use `#### Details` for details (level 4)
+
+2. **Use Links**: Always format URLs as clickable Markdown links
+   - Format: `[Link Text](https://url.com)`
+   - Example: `[View Repository](https://github.com/owner/repo)`
+   - NEVER output raw URLs without Markdown link format
+
+3. **Use Lists**: Use bullet points or numbered lists for multiple items
+   - Use `- Item` for unordered lists
+   - Use `1. Item` for ordered lists
+
+4. **Use Code Blocks**: For code snippets, use triple backticks with language
+   - Format: ` ```language\ncode\n``` `
+
+5. **Use Bold/Italic**: Use `**bold**` and `*italic*` for emphasis
+
+6. **Structure**: Organize your response with clear sections using headings
+
+Example format:
+```markdown
+# Main Title
+
+## Section 1
+
+Content here with [links](https://example.com).
+
+### Subsection
+
+More details...
+
+## Section 2
+
+- Item 1
+- Item 2
+```
+
+Always be helpful, concise, and provide actionable insights. Format your responses properly with clear sections, headings, and clickable links."""
 
         # Use LangChain 1.2+ create_agent API (unified for all LLMs)
         # Note: create_agent returns a CompiledStateGraph, not a simple callable
@@ -183,160 +171,9 @@ Always be helpful, concise, and provide actionable insights. When showing result
         tool_calling_providers = ["deepseek", "openai", "anthropic", "google", "azure", "groq", "openai_compatible"]
         return provider in tool_calling_providers
 
-    # Tool wrapper methods
-    def _get_trending_repos_wrapper(self, input_str: str) -> str:
-        """Wrapper for get_trending_repos tool（抓取 trending 页 -> AI 总结）"""
-        import json
-        try:
-            params = json.loads(input_str)
-            language = params.get("language")
-            since = params.get("since", "daily")
-            limit = params.get("limit", 10)
-            repos = self.trending_tool.get_trending_repos(
-                language=language,
-                since=since,
-                limit=limit,
-            )
-            return self.trending_tool.get_trending_summary(
-                repos, language=language, since=since, use_llm=True
-            )
-        except json.JSONDecodeError:
-            repos = self.trending_tool.get_trending_repos(limit=10)
-            return self.trending_tool.get_trending_summary(repos, use_llm=True)
-        except Exception as e:
-            return f"Error: {str(e)}"
-
-    def _get_valuable_prs_wrapper(self, repo: str) -> str:
-        """Wrapper for get_valuable_prs tool"""
-        try:
-            prs = self.pr_tool.get_valuable_prs(repo)
-            if not prs or "error" in prs[0]:
-                return f"No valuable PRs found for {repo} today."
-
-            result = f"Most valuable PRs for {repo} today:\n\n"
-            for i, pr in enumerate(prs, 1):
-                result += f"{i}. **#{pr['number']}** {pr['title']} (Score: {pr['value_score']})\n"
-                result += f"   Author: {pr['author']} | Comments: {pr['comments']} | State: {pr['state']}\n"
-                result += f"   URL: {pr['url']}\n\n"
-
-            return result
-        except Exception as e:
-            return f"Error: {str(e)}"
-
-    def _get_today_prs_wrapper(self, repo: str) -> str:
-        """Wrapper for get_today_prs tool"""
-        try:
-            prs = self.pr_tool.get_today_prs(repo)
-            if not prs or "error" in prs[0]:
-                return f"No PRs found for {repo} today."
-
-            result = f"Today's PRs for {repo}:\n\n"
-            for pr in prs:
-                result += f"**#{pr['number']}** {pr['title']}\n"
-                result += f"Author: {pr['author']} | State: {pr['state']} | Comments: {pr['comments']}\n"
-                result += f"URL: {pr['url']}\n\n"
-
-            return result
-        except Exception as e:
-            return f"Error: {str(e)}"
-
-    def _analyze_pr_wrapper(self, input_str: str) -> str:
-        """Wrapper for analyze_pr tool"""
-        import json
-        try:
-            params = json.loads(input_str)
-            analysis = self.pr_tool.analyze_pr(
-                params["repo"],
-                params["pr_number"]
-            )
-
-            if "error" in analysis:
-                return f"Error: {analysis['error']}"
-
-            result = f"PR Analysis for #{analysis['number']}: {analysis['title']}\n\n"
-            result += f"State: {analysis['state']} | Author: {analysis['author']}\n"
-            result += f"Value Score: {analysis['value_score']}\n"
-            result += f"Files Changed: {analysis['files_changed']}\n"
-            result += f"Additions: +{analysis['additions']} | Deletions: -{analysis['deletions']}\n"
-            result += f"Comments: {analysis['comments']} | Review Comments: {analysis['review_comments']}\n"
-            result += f"Maintainer Participated: {analysis['maintainer_participated']}\n"
-            result += f"URL: {analysis['url']}\n"
-
-            return result
-        except Exception as e:
-            return f"Error: {str(e)}"
-
-    def _create_issue_wrapper(self, input_str: str) -> str:
-        """Wrapper for create_issue tool"""
-        import json
-        try:
-            params = json.loads(input_str)
-            result = self.issue_tool.create_issue_from_text(
-                params["repo"],
-                params["text"],
-                assignees=params.get("assignees"),
-                labels=params.get("labels")
-            )
-
-            if "error" in result:
-                return f"Error: {result['error']}"
-
-            response = f"Issue created successfully!\n\n"
-            response += f"**#{result['number']}** {result['title']}\n"
-            response += f"URL: {result['url']}\n"
-            response += f"Labels: {', '.join(result['labels'])}\n"
-
-            if result.get("similar_issues"):
-                response += f"\n⚠️ Similar issues found: {len(result['similar_issues'])}\n"
-                for similar in result['similar_issues'][:3]:
-                    response += f"- #{similar['number']}: {similar['title']}\n"
-
-            return response
-        except Exception as e:
-            return f"Error: {str(e)}"
-
-    def _get_issues_wrapper(self, input_str: str) -> str:
-        """Wrapper for get_issues tool"""
-        import json
-        try:
-            params = json.loads(input_str)
-            issues = self.issue_tool.get_issues(
-                params["repo"],
-                state=params.get("state", "open"),
-                limit=params.get("limit", 20)
-            )
-
-            if not issues or "error" in issues[0]:
-                return f"No issues found for {params['repo']}."
-
-            result = f"Issues for {params['repo']} ({params.get('state', 'open')}):\n\n"
-            for issue in issues:
-                result += f"**#{issue['number']}** {issue['title']}\n"
-                result += f"Author: {issue['author']} | Labels: {', '.join(issue['labels'])}\n"
-                result += f"URL: {issue['url']}\n\n"
-
-            return result
-        except Exception as e:
-            return f"Error: {str(e)}"
-
-    def _analyze_trending_reason_wrapper(self, repo: str) -> str:
-        """Wrapper for analyze_trending_reason tool"""
-        try:
-            analysis = self.trending_tool.analyze_trending_reason(repo)
-
-            if "error" in analysis:
-                return f"Error: {analysis['error']}"
-
-            result = f"Trending Analysis for {repo}:\n\n"
-            result += f"Recent Commits: {analysis['recent_commits']}\n"
-            result += f"Stars: {analysis['stars_today']} | Forks: {analysis['forks']}\n"
-            result += f"Topics: {', '.join(analysis['topics'])}\n"
-            if analysis.get('readme_preview'):
-                result += f"\nREADME Preview:\n{analysis['readme_preview'][:200]}...\n"
-
-            return result
-        except Exception as e:
-            return f"Error: {str(e)}"
+    # Note: Tool wrapper methods have been moved to langchain_tools.py
+    # They are now defined using @tool decorator with structured inputs (Pydantic models)
+    # This provides better type safety, validation, and LLM understanding
 
     def chat(self, message: str, chat_history: Optional[List] = None) -> str:
         """
@@ -402,6 +239,188 @@ Always be helpful, concise, and provide actionable insights. When showing result
             import traceback
             error_detail = traceback.format_exc()
             # Log error for debugging (but don't expose to user)
-            print(f"Agent error: {str(e)}")
-            print(f"Error detail: {error_detail[:500]}")
+            logger.error(f"Agent error: {str(e)}")
+            logger.debug(f"Error detail: {error_detail}")
             return f"处理请求时出错: {str(e)}。请检查配置是否正确。"
+
+    def chat_stream(self, message: str, chat_history: Optional[List] = None):
+        """
+        Chat with the agent using streaming (synchronous generator)
+
+        Args:
+            message: User message
+            chat_history: Previous conversation history
+
+        Yields:
+            Chunks of agent response text
+        """
+        try:
+            import hashlib
+            thread_id = hashlib.md5(message.encode()).hexdigest()[:8]
+            config = {"configurable": {"thread_id": thread_id}}
+
+            # Prepare input - LangChain 1.2+ expects messages in the input
+            input_data = {"messages": [HumanMessage(content=message)]}
+
+            # Stream agent response
+            try:
+                # Track previous content to only yield deltas
+                previous_content = ""
+                chunk_count = 0
+                has_yielded = False
+
+                # Use stream_events for more granular streaming (token-level)
+                # This provides better real-time streaming experience
+                logger.debug(f"[AGENT_STREAM] Starting to stream agent response...")
+                logger.debug(f"[AGENT_STREAM] Input data: {input_data}")
+                logger.debug(f"[AGENT_STREAM] Config: {config}")
+                logger.debug(f"[AGENT_STREAM] Agent type: {type(self.agent)}")
+
+                # Try to use stream_events for token-level streaming
+                try:
+                    # Check if agent has stream_events method
+                    if hasattr(self.agent, 'stream_events'):
+                        logger.debug("[AGENT_STREAM] Using stream_events for token-level streaming")
+                        stream_gen = self.agent.stream_events(input_data, config, version="v2")
+                    else:
+                        logger.debug("[AGENT_STREAM] Using stream() method (state-level streaming)")
+                        stream_gen = self.agent.stream(input_data, config)
+                except Exception as e:
+                    logger.warning(f"[AGENT_STREAM] stream_events not available, falling back to stream(): {str(e)}")
+                    stream_gen = self.agent.stream(input_data, config)
+
+                logger.debug(f"[AGENT_STREAM] Stream generator created: {type(stream_gen)}")
+
+                for chunk in stream_gen:
+                    chunk_count += 1
+                    logger.debug(f"[AGENT_STREAM] Received chunk #{chunk_count}, type: {type(chunk)}")
+
+                    # Extract text from chunk
+                    current_content = ""
+
+                    # Log first few chunks for debugging (only in DEBUG mode)
+                    if chunk_count <= 3:
+                        logger.debug(f"[AGENT_STREAM] Chunk #{chunk_count} type: {type(chunk)}, value: {str(chunk)[:200]}")
+
+                    # LangChain agent.stream() yields state dictionaries
+                    if isinstance(chunk, dict):
+                        logger.debug(f"[AGENT_STREAM] Chunk #{chunk_count} is dict, keys: {list(chunk.keys())}")
+
+                        # Check for messages in the state (multiple possible structures)
+                        messages = None
+
+                        # Structure 1: chunk["messages"] (direct)
+                        if "messages" in chunk:
+                            messages = chunk["messages"]
+                            logger.debug(f"[AGENT_STREAM] Found messages directly: {len(messages)} messages")
+
+                        # Structure 2: chunk["model"]["messages"] (nested)
+                        elif "model" in chunk and isinstance(chunk["model"], dict):
+                            if "messages" in chunk["model"]:
+                                messages = chunk["model"]["messages"]
+                                logger.debug(f"[AGENT_STREAM] Found messages in model: {len(messages)} messages")
+
+                        # Structure 3: chunk["agent"]["messages"] (nested)
+                        elif "agent" in chunk and isinstance(chunk["agent"], dict):
+                            if "messages" in chunk["agent"]:
+                                messages = chunk["agent"]["messages"]
+                                logger.debug(f"[AGENT_STREAM] Found messages in agent: {len(messages)} messages")
+
+                        # Extract content from messages if found
+                        if messages:
+                            logger.debug(f"[AGENT_STREAM] Processing {len(messages)} messages")
+                            # Get the last message in the chunk
+                            for idx, msg in enumerate(reversed(messages)):
+                                logger.debug(f"[AGENT_STREAM] Checking message {idx}, type: {type(msg)}")
+                                if hasattr(msg, "content"):
+                                    content = msg.content
+                                    logger.debug(f"[AGENT_STREAM] Message has content attribute: {type(content)}, length: {len(str(content)) if content else 0}")
+                                    if content:
+                                        current_content = content
+                                        logger.debug(f"[AGENT_STREAM] Found content in message: {str(content)[:100]}...")
+                                        break
+                                elif isinstance(msg, dict):
+                                    logger.debug(f"[AGENT_STREAM] Message is dict, keys: {list(msg.keys())}")
+                                    if "content" in msg:
+                                        current_content = msg["content"]
+                                        logger.debug(f"[AGENT_STREAM] Found content in dict message: {str(current_content)[:100]}...")
+                                        break
+
+                        # Also check for "output" key
+                        elif "output" in chunk:
+                            logger.debug(f"[AGENT_STREAM] Found 'output' key in chunk")
+                            output = chunk["output"]
+                            if isinstance(output, str):
+                                current_content = output
+                                logger.debug(f"[AGENT_STREAM] Output is string: {current_content[:100]}...")
+                            elif hasattr(output, "content"):
+                                current_content = output.content
+                                logger.debug(f"[AGENT_STREAM] Output has content: {str(current_content)[:100]}...")
+
+                        # Log chunk structure for debugging (only first few chunks)
+                        if chunk_count <= 3:
+                            logger.debug(f"[AGENT_STREAM] Chunk #{chunk_count} keys: {list(chunk.keys())}")
+                            if "model" in chunk:
+                                logger.debug(f"[AGENT_STREAM] Chunk #{chunk_count} model keys: {list(chunk['model'].keys()) if isinstance(chunk['model'], dict) else 'not dict'}")
+                    elif hasattr(chunk, "content"):
+                        logger.debug(f"[AGENT_STREAM] Chunk has content attribute")
+                        if chunk.content:
+                            current_content = chunk.content
+                            logger.debug(f"[AGENT_STREAM] Content from attribute: {str(current_content)[:100]}...")
+                    elif isinstance(chunk, str):
+                        logger.debug(f"[AGENT_STREAM] Chunk is string")
+                        current_content = chunk
+                        logger.debug(f"[AGENT_STREAM] Content is string: {current_content[:100]}...")
+                    else:
+                        logger.warning(f"[AGENT_STREAM] Unknown chunk type: {type(chunk)}")
+
+                    logger.debug(f"[AGENT_STREAM] Extracted content length: {len(current_content)}, previous: {len(previous_content)}")
+
+                    # Yield only new content (delta) - for state-based streaming
+                    if current_content and len(current_content) > len(previous_content):
+                        delta = current_content[len(previous_content):]
+                        if delta:
+                            # Split delta into smaller chunks for better streaming experience
+                            # Yield in smaller pieces (e.g., 10-20 chars at a time) for smoother display
+                            chunk_size = 15  # Characters per yield for smoother streaming
+                            for i in range(0, len(delta), chunk_size):
+                                piece = delta[i:i + chunk_size]
+                                if piece:
+                                    logger.debug(f"[AGENT_STREAM] Yielding piece: {len(piece)} chars")
+                                    yield piece
+                                    has_yielded = True
+                                    # Small delay to make streaming more visible (optional)
+                                    import time
+                                    time.sleep(0.01)  # 10ms delay for smoother display
+                        previous_content = current_content
+                    elif not current_content:
+                        logger.debug(f"[AGENT_STREAM] No new content to yield (current: {len(current_content)}, previous: {len(previous_content)})")
+
+                    # Log progress for debugging (every 50 chunks, only in DEBUG mode)
+                    if chunk_count % 50 == 0:
+                        logger.debug(f"[AGENT_STREAM] Progress: {chunk_count} chunks processed, content length: {len(previous_content)}")
+
+                logger.debug(f"[AGENT_STREAM] Stream loop finished. Total chunks: {chunk_count}, has_yielded: {has_yielded}")
+
+                # If no content was yielded, log a warning with more details
+                if not has_yielded:
+                    if chunk_count > 0:
+                        logger.warning(f"[AGENT_STREAM] No content yielded after {chunk_count} chunks. Last chunk type: {type(chunk)}, value: {str(chunk)[:300]}")
+                    else:
+                        logger.warning(f"[AGENT_STREAM] No chunks received from agent.stream()")
+                else:
+                    logger.debug(f"[AGENT_STREAM] Streaming completed: {chunk_count} chunks, {len(previous_content)} chars yielded")
+
+            except (BrokenPipeError, ConnectionError, OSError) as conn_error:
+                logger.warning(f"Connection error during streaming: {str(conn_error)}")
+                yield f"\n\n连接错误: {str(conn_error)}。请重试。"
+            except Exception as e:
+                logger.error(f"Error in chat_stream: {str(e)}")
+                import traceback
+                logger.debug(f"Traceback: {traceback.format_exc()}")
+                yield f"\n\n处理消息时出错: {str(e)}"
+        except Exception as e:
+            logger.error(f"Error in chat_stream: {str(e)}")
+            import traceback
+            logger.debug(f"Traceback: {traceback.format_exc()}")
+            yield f"处理消息时出错: {str(e)}"

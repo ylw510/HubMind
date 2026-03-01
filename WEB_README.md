@@ -135,10 +135,59 @@ npm run dev
 
 ## 🔒 环境变量
 
-确保 `.env` 文件已配置：
-- `GITHUB_TOKEN` - GitHub API Token
-- `DEEPSEEK_API_KEY` - DeepSeek API Key
-- `LLM_PROVIDER=deepseek` - LLM 提供商
+### 必需配置
+
+确保 `backend/.env` 文件已配置：
+
+```env
+# GitHub API
+GITHUB_TOKEN=your_github_token_here
+
+# LLM Provider
+LLM_PROVIDER=deepseek
+DEEPSEEK_API_KEY=your_deepseek_api_key_here
+
+# PostgreSQL Database（必需）
+DATABASE_URL=postgresql://hubmind_user:hubmind_pass@localhost:5432/hubmind
+```
+
+### PostgreSQL 配置
+
+**Web 版需要 PostgreSQL 数据库**，用于存储用户账号和设置。
+
+#### 快速安装 PostgreSQL
+
+```bash
+# Ubuntu/Debian
+sudo apt update
+sudo apt install postgresql postgresql-contrib
+sudo systemctl start postgresql
+sudo systemctl enable postgresql
+
+# 创建数据库和用户
+sudo -u postgres psql -c "CREATE DATABASE hubmind;"
+sudo -u postgres psql -c "CREATE USER hubmind_user WITH PASSWORD 'hubmind_pass';"
+sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE hubmind TO hubmind_user;"
+sudo -u postgres psql -d hubmind -c "GRANT ALL ON SCHEMA public TO hubmind_user;"
+```
+
+#### 配置访问权限
+
+如果遇到连接错误，需要配置 PostgreSQL 访问权限：
+
+```bash
+# 编辑配置文件
+sudo nano /etc/postgresql/14/main/pg_hba.conf
+
+# 添加以下行（在 # IPv4 local connections: 部分）
+host    all             all             127.0.0.1/32            scram-sha-256
+host    all             all             192.168.0.0/16          scram-sha-256
+
+# 重新加载配置
+sudo systemctl reload postgresql
+```
+
+详细说明请查看 [docs/POSTGRESQL.md](../docs/POSTGRESQL.md)
 
 ## 📝 开发说明
 
@@ -169,9 +218,15 @@ npm run build
 ## 🐛 故障排除
 
 ### 后端无法启动
-- 检查 Python 版本（需要 3.8+）
-- 确保所有依赖已安装
-- 检查 `.env` 文件配置
+
+- **检查 Python 版本**（需要 3.8+）
+- **确保所有依赖已安装**：`pip install -r backend/requirements.txt`
+- **检查 `.env` 文件配置**：确保 `backend/.env` 存在且配置正确
+- **检查 PostgreSQL**：
+  - 确保 PostgreSQL 服务运行：`sudo systemctl status postgresql`
+  - 确保数据库已创建：`sudo -u postgres psql -c "\l" | grep hubmind`
+  - 检查 `DATABASE_URL` 配置是否正确
+  - 查看详细错误信息：检查后端日志 `backend.log`
 
 ### 前端无法启动
 - 检查 Node.js 版本（需要 16+）

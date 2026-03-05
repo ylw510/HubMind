@@ -1,0 +1,330 @@
+/* Chatbot Layout Styles */
+
+/* Layout */
+.chatbot-layout {
+  display: flex !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  min-height: 100vh !important;
+  overflow: hidden;
+  background: #ffffff;
+  color: #1a1a1a;
+  position: relative;
+  z-index: 1;
+  margin: 0;
+  padding: 0;
+}
+
+/* Sidebar */
+.chatbot-sidebar {
+  width: 260px !important;
+  min-width: 260px !important;
+  background: #f8f9fa !important;
+  border-right: 1px solid #e5e7eb !important;
+  display: flex !important;
+  flex-direction: column;
+  transition: width 0.2s ease;
+  overflow: hidden;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 2;
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+
+.chatbot-sidebar.collapsed {
+  width: 60px;
+}
+
+.chatbot-sidebar-header {
+  padding: 12px;
+  border-bottom: 1px solid #e5e7eb;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  position: relative;
+}
+
+.chatbot-sidebar-new-chat {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: #ffffff;
+  color: #1a1a1a;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  width: 100%;
+}
+
+.chatbot-sidebar-new-chat:hover {
+  background: #f3f4f6;
+  border-color: #d1d5db;
+}
+
+.chatbot-sidebar-search {
+  position: relative;
+}
+
+.chatbot-sidebar-search-input {
+  width: 100%;
+  padding: 8px 12px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  color: #1a1a1a;
+  font-size: 13px;
+  transition: border-color 0.2s ease;
+}
+
+.chatbot-sidebar-search-input:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.chatbot-sidebar-search-input::placeholder {
+  color: #9ca3af;
+}
+
+.chatbot-sidebar-toggle {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: #6b7280;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.chatbot-sidebar-toggle:hover {
+  background: #f3f4f6;
+  color: #1a1a1a;
+}
+
+.chatbot-sidebar-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.chatbot-sidebar-section {
+  margin-bottom: 16px;
+}
+
+.chatbot-sidebar-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: #9ca3af;
+  padding: 8px 12px;
+  letter-spacing: 0.5px;
+}
+
+.chatbot-sidebar-item-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  position: relative;
+  margin-bottom: 2px;
+}
+
+.chatbot-sidebar-item-wrapper:hover .chatbot-sidebar-item-delete {
+  opacity: 1;
+}
+
+.chatbot-sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  padding: 10px 12px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  color: #6b7280;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.chatbot-sidebar-item:hover {
+  background: #f3f4f6;
+  color: #1a1a1a;
+}
+
+.chatbot-sidebar-item.active {
+  background: #dbeafe;
+  color: #2563eb;
+}
+
+.chatbot-sidebar-item-text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chatbot-sidebar-item-delete {
+  padding: 6px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: #9ca3af;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  opacity: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.chatbot-sidebar-item-delete:hover {
+  background: #fee2e2;
+  color: #ef4444;
+  opacity: 1;
+}
+
+.chatbot-sidebar-empty {
+  padding: 24px;
+  text-align: center;
+  color: #9ca3af;
+  font-size: 13px;
+}
+
+.chatbot-sidebar-footer {
+  padding: 12px;
+  border-top: 1px solid #e5e7eb;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chatbot-sidebar-settings {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  color: #6b7280;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.chatbot-sidebar-settings:hover {
+  background: #f3f4f6;
+  color: #1a1a1a;
+}
+
+.chatbot-sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #1a1a1a;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* Main Content */
+.chatbot-main {
+  flex: 1 !important;
+  display: flex !important;
+  flex-direction: column;
+  overflow: hidden;
+  background: #ffffff !important;
+  position: relative;
+  min-width: 0;
+  z-index: 1;
+}
+
+.chatbot-main::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: linear-gradient(180deg, transparent 0%, #e5e7eb 20%, #e5e7eb 80%, transparent 100%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+
+.chatbot-layout.with-issue-panel .chatbot-main::after {
+  opacity: 1;
+}
+
+.chatbot-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.chatbot-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  background: #ffffff;
+  transition: margin-right 0.3s ease, background 0.3s ease;
+}
+
+
+.chatbot-messages.with-panel {
+  margin-right: 420px;
+  background: linear-gradient(to right, #ffffff 0%, #fafbfc 100%);
+  padding-right: 24px;
+}
+
+.chatbot-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  text-align: center;
+  padding: 48px 24px;
+}
+
+.chatbot-empty-icon {
+  margin-bottom: 24px;
+  color: #9ca3af;
+  opacity: 0.6;
+}
+
+.chatbot-empty-title {
+  font-size: 28px;
+  font-weight: 600;
+  color: #1a1a1a;
+  margin-bottom: 12px;
+}
+
+.chatbot-empty-subtitle {
+  font-size: 14px;
+  color: #6b7280;
+  max-width: 400px;
+}
+
+.chatbot-layout.with-issue-panel {
+  position: relative;
+}

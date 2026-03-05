@@ -96,7 +96,7 @@ export default function ChatMessage({ message, role, onEdit, onDelete }) {
                 onClick={handleEdit}
                 title="编辑"
               >
-                <Edit2 size={14} />
+                <Edit2 size={12} />
               </button>
               <button
                 type="button"
@@ -104,7 +104,7 @@ export default function ChatMessage({ message, role, onEdit, onDelete }) {
                 onClick={handleDelete}
                 title="删除"
               >
-                <Trash2 size={14} />
+                <Trash2 size={12} />
               </button>
             </>
           )}
@@ -114,7 +114,7 @@ export default function ChatMessage({ message, role, onEdit, onDelete }) {
             onClick={handleCopy}
             title={copied ? '已复制' : '复制'}
           >
-            {copied ? <Check size={14} /> : <Copy size={14} />}
+            {copied ? <Check size={12} /> : <Copy size={12} />}
           </button>
         </div>
       </div>

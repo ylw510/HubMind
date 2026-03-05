@@ -443,14 +443,10 @@ async def chat(
             full_response = ""
             chunk_count = 0
             try:
-                logger.debug(f"[STREAM] Starting stream for message: {message[:50]}...")
-                logger.debug(f"[STREAM] Agent type: {type(agent)}")
-
                 # Run synchronous stream in executor to avoid blocking
                 import concurrent.futures
                 import asyncio
                 loop = asyncio.get_event_loop()
-                logger.debug(f"[STREAM] Event loop: {loop}")
 
                 # Create a queue to pass chunks from sync generator to async generator
                 queue = asyncio.Queue(maxsize=100)  # Limit queue size to prevent memory issues
@@ -462,16 +458,10 @@ async def chat(
                     """Run synchronous stream in thread"""
                     nonlocal stream_error, chunks_produced, chunks_queued
                     try:
-                        logger.debug("[SYNC_STREAM] Starting sync stream in thread...")
-                        logger.debug(f"[SYNC_STREAM] Message: {message[:50]}...")
-                        logger.debug(f"[SYNC_STREAM] Chat history: {len(request.chat_history) if request.chat_history else 0} messages")
-
                         chunk_gen = agent.chat_stream(message, request.chat_history)
-                        logger.debug(f"[SYNC_STREAM] Generator created: {type(chunk_gen)}")
 
                         for chunk in chunk_gen:
                             chunks_produced += 1
-                            logger.debug(f"[SYNC_STREAM] Got chunk #{chunks_produced}, type: {type(chunk)}, length: {len(str(chunk)) if chunk else 0}")
 
                             # Put chunk in queue using thread-safe method
                             try:
@@ -481,24 +471,18 @@ async def chat(
                                     try:
                                         queue.put_nowait(chunk_val)
                                         chunks_queued += 1
-                                        # Only log every 10th chunk to reduce noise
-                                        if chunks_queued % 10 == 0:
-                                            logger.debug(f"[SYNC_STREAM] {chunks_queued} chunks queued")
                                     except asyncio.QueueFull:
-                                        logger.warning(f"[SYNC_STREAM] Queue full, dropping chunk #{chunks_produced}")
+                                        logger.warning(f"Queue full, dropping chunk #{chunks_produced}")
 
                                 loop.call_soon_threadsafe(put_chunk, chunk)
-                                logger.debug(f"[SYNC_STREAM] Scheduled chunk #{chunks_produced} to be queued")
                             except Exception as put_error:
-                                logger.error(f"[SYNC_STREAM] Error putting chunk in queue: {str(put_error)}")
+                                logger.error(f"Error putting chunk in queue: {str(put_error)}")
                                 import traceback
-                                logger.error(f"[SYNC_STREAM] Traceback: {traceback.format_exc()}")
+                                logger.error(f"Traceback: {traceback.format_exc()}")
                                 break
 
                         # Signal done
-                        logger.debug(f"[SYNC_STREAM] Stream finished. Total chunks produced: {chunks_produced}, queued: {chunks_queued}")
                         loop.call_soon_threadsafe(lambda: queue.put_nowait(None))
-                        logger.debug("[SYNC_STREAM] Done signal sent to queue")
                     except Exception as e:
                         logger.error(f"[SYNC_STREAM] Error in sync stream: {str(e)}")
                         import traceback
@@ -510,78 +494,59 @@ async def chat(
                             logger.error(f"[SYNC_STREAM] Error sending done signal: {str(final_error)}")
 
                 # Start sync stream in executor
-                logger.debug("[STREAM] Creating ThreadPoolExecutor...")
                 executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-                logger.debug("[STREAM] Submitting run_sync_stream to executor...")
                 future = executor.submit(run_sync_stream)
-                logger.debug("[STREAM] Executor task submitted, waiting for chunks...")
 
                 # Consume chunks from queue with timeout
                 try:
                     while True:
                         try:
-                            logger.debug(f"[STREAM] Waiting for chunk from queue (current count: {chunk_count})...")
                             # Wait for chunk with timeout
                             chunk = await asyncio.wait_for(queue.get(), timeout=300.0)  # 5 minute timeout
-                            logger.debug(f"[STREAM] Got chunk from queue: {chunk is not None}, type: {type(chunk)}")
 
                             if chunk is None:  # Done signal
-                                logger.debug("[STREAM] Received done signal from queue")
                                 break
 
                             chunk_count += 1
-                            logger.debug(f"[STREAM] Processing chunk #{chunk_count}, length: {len(str(chunk)) if chunk else 0}")
 
                             if chunk:
                                 full_response += chunk
-                                logger.debug(f"[STREAM] Full response length: {len(full_response)}")
 
                                 # Send chunk as JSON (Server-Sent Events format)
                                 chunk_data = json.dumps({'chunk': chunk, 'done': False}, ensure_ascii=False)
-                                logger.debug(f"[STREAM] Sending chunk data: {chunk_data[:100]}...")
                                 yield f"data: {chunk_data}\n\n"
-                                # Only log every 20th chunk to reduce noise
-                                if chunk_count % 20 == 0:
-                                    logger.debug(f"[STREAM] {chunk_count} chunks sent to client")
                         except asyncio.TimeoutError:
-                            logger.error("[STREAM] Timeout waiting for stream chunks")
+                            logger.error("Timeout waiting for stream chunks")
                             break
                         except Exception as chunk_error:
-                            logger.error(f"[STREAM] Error processing chunk: {str(chunk_error)}")
+                            logger.error(f"Error processing chunk: {str(chunk_error)}")
                             import traceback
-                            logger.error(f"[STREAM] Traceback: {traceback.format_exc()}")
+                            logger.error(f"Traceback: {traceback.format_exc()}")
                             break
                 finally:
-                    logger.debug(f"[STREAM] Exiting chunk consumption loop. Total chunks: {chunk_count}")
                     # Wait for executor to finish (with timeout)
                     try:
-                        logger.debug("[STREAM] Waiting for executor to finish...")
                         future.result(timeout=10)
-                        logger.debug("[STREAM] Executor finished successfully")
                     except concurrent.futures.TimeoutError:
-                        logger.warning("[STREAM] Executor did not finish in time")
+                        logger.warning("Executor did not finish in time")
                     except Exception as e:
-                        logger.error(f"[STREAM] Error waiting for executor: {str(e)}")
+                        logger.error(f"Error waiting for executor: {str(e)}")
                         import traceback
-                        logger.error(f"[STREAM] Traceback: {traceback.format_exc()}")
+                        logger.error(f"Traceback: {traceback.format_exc()}")
                     finally:
-                        logger.debug("[STREAM] Shutting down executor...")
                         executor.shutdown(wait=False)
-                        logger.debug("[STREAM] Executor shut down")
 
                 # Check for stream errors
                 if stream_error:
-                    logger.error(f"[STREAM] Stream error occurred: {stream_error}")
+                    logger.error(f"Stream error occurred: {stream_error}")
                     error_chunk = f'\n\n错误: {stream_error}'
                     error_data = json.dumps({'chunk': error_chunk, 'done': False}, ensure_ascii=False)
                     yield f"data: {error_data}\n\n"
 
-                logger.debug(f"[STREAM] Stream completed: {chunk_count} chunks received, {len(full_response)} chars total")
-                logger.debug(f"[STREAM] Chunks produced: {chunks_produced}, queued: {chunks_queued}")
                 if chunk_count == 0:
-                    logger.warning("[STREAM] No chunks received from agent.chat_stream()")
+                    logger.warning("No chunks received from agent.chat_stream()")
                 if len(full_response) == 0:
-                    logger.warning("[STREAM] No content in full_response after streaming")
+                    logger.warning("No content in full_response after streaming")
                 # Send final message
                 yield f"data: {json.dumps({'chunk': '', 'done': True, 'full_response': full_response}, ensure_ascii=False)}\n\n"
 
@@ -860,18 +825,70 @@ async def create_issue_draft(
     """Create a GitHub issue from draft (title, body, etc.)"""
     try:
         from github import Github
+        from github.GithubException import GithubException
+
+        # 优先使用用户的 GitHub token
         github = _github_for_user(db, user) if user else None
+        using_user_token = github is not None
+
+        # 如果用户没有配置 token，使用全局 token
         if github is None:
+            if not Config.GITHUB_TOKEN:
+                raise HTTPException(
+                    status_code=400,
+                    detail="未配置 GitHub Token。请在设置页面配置你的 GitHub Token，以便在其他仓库创建 Issue。"
+                )
             github = Github(Config.GITHUB_TOKEN)
-        repo = github.get_repo(request.repo)
+            logger.warning(f"Using global GitHub token to create issue in {request.repo}")
+
+        try:
+            repo = github.get_repo(request.repo)
+        except GithubException as e:
+            if e.status == 404:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"仓库 {request.repo} 不存在或无法访问。请检查仓库名称是否正确，或确保你的 GitHub Token 有访问该仓库的权限。"
+                )
+            elif e.status == 403:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"没有权限访问仓库 {request.repo}。如果你选择的是自己的仓库，请在设置页面配置你的 GitHub Token。"
+                )
+            raise HTTPException(
+                status_code=500,
+                detail=f"访问仓库时出错: {e.data.get('message', str(e)) if hasattr(e, 'data') else str(e)}"
+            )
 
         # Create issue
-        issue = repo.create_issue(
-            title=request.title,
-            body=request.body,
-            assignees=request.assignees or [],
-            labels=request.labels or []
-        )
+        try:
+            issue = repo.create_issue(
+                title=request.title,
+                body=request.body,
+                assignees=request.assignees or [],
+                labels=request.labels or []
+            )
+        except GithubException as e:
+            if e.status == 403:
+                if not using_user_token:
+                    raise HTTPException(
+                        status_code=403,
+                        detail=f"没有权限在仓库 {request.repo} 创建 Issue。请在设置页面配置你的 GitHub Token，以便在你的仓库中创建 Issue。"
+                    )
+                else:
+                    raise HTTPException(
+                        status_code=403,
+                        detail=f"没有权限在仓库 {request.repo} 创建 Issue。请确保你的 GitHub Token 有该仓库的写权限。"
+                    )
+            elif e.status == 422:
+                error_msg = e.data.get('message', str(e)) if hasattr(e, 'data') else str(e)
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"创建 Issue 失败: {error_msg}"
+                )
+            raise HTTPException(
+                status_code=500,
+                detail=f"创建 Issue 时出错: {e.data.get('message', str(e)) if hasattr(e, 'data') else str(e)}"
+            )
 
         return {
             "number": issue.number,
@@ -881,8 +898,11 @@ async def create_issue_draft(
             "labels": [label.name for label in issue.labels],
             "assignees": [assignee.login for assignee in issue.assignees],
         }
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error creating issue draft: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"创建 Issue 失败: {str(e)}")
 
 @app.post("/api/qa")
 async def ask_question(
@@ -926,6 +946,13 @@ class GitHubRepoRequest(BaseModel):
 class GitHubFilesRequest(BaseModel):
     repo: str
     path: str = ""
+
+class GitHubSearchReposRequest(BaseModel):
+    query: str
+    limit: int = 20
+
+class CheckIssuePermissionRequest(BaseModel):
+    repo: str
 
 @app.post("/api/github/repo-info")
 async def get_repo_info(
@@ -1148,6 +1175,234 @@ async def get_user_repos(
                 detail="GitHub API 返回 404。请检查 Token 是否正确，或 Token 是否有访问仓库的权限。"
             )
         raise HTTPException(status_code=500, detail=f"获取仓库列表失败: {error_msg}")
+
+@app.post("/api/github/search-repos")
+async def search_repos(
+    request: GitHubSearchReposRequest,
+    user: Optional[User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db),
+):
+    """Search GitHub repositories"""
+    try:
+        from github import Github
+        from github.GithubException import GithubException
+
+        # 优先使用用户的 GitHub token
+        github = None
+        if user:
+            github = _github_for_user(db, user)
+            if github:
+                logger.info(f"Using user's GitHub token for repo search: {user.username}")
+            else:
+                logger.warning(f"User {user.username} has no GitHub token configured")
+
+        # 如果用户没有 token，尝试使用全局配置的 token
+        if github is None:
+            if Config.GITHUB_TOKEN:
+                github = Github(Config.GITHUB_TOKEN)
+                logger.info("Using global GitHub token for repo search")
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail="未配置 GitHub Token。请在设置页面配置你的 GitHub Token 以搜索仓库。"
+                )
+
+        try:
+            # 使用 GitHub Search API 搜索仓库
+            search_query = request.query.strip()
+            if not search_query:
+                return {"repos": [], "count": 0}
+
+            # 构建搜索查询，支持 owner/repo 格式或普通搜索词
+            if '/' in search_query and len(search_query.split('/')) == 2:
+                # 如果是 owner/repo 格式，精确搜索
+                search_query = f"repo:{search_query}"
+
+            repos = github.search_repositories(
+                search_query,
+                sort="stars",
+                order="desc"
+            )
+
+            repo_list = []
+            for repo in repos[:request.limit]:
+                try:
+                    repo_list.append({
+                        "id": repo.id,
+                        "name": repo.name,
+                        "full_name": repo.full_name,
+                        "description": repo.description,
+                        "private": repo.private,
+                        "language": repo.language,
+                        "stargazers_count": repo.stargazers_count,
+                        "forks_count": repo.forks_count,
+                        "updated_at": repo.updated_at.isoformat() if repo.updated_at else None,
+                        "html_url": repo.html_url,
+                    })
+                except Exception as e:
+                    logger.warning(f"Error processing repo {repo.full_name}: {str(e)}")
+                    continue
+
+            logger.info(f"Found {len(repo_list)} repositories for query: {request.query}")
+            return {
+                "repos": repo_list,
+                "count": len(repo_list),
+            }
+        except GithubException as e:
+            logger.error(f"GitHub API error during repo search: status={e.status}, message={e.data.get('message', str(e)) if hasattr(e, 'data') else str(e)}")
+            if e.status == 401:
+                raise HTTPException(
+                    status_code=401,
+                    detail="GitHub Token 无效或已过期。请在设置页面更新你的 GitHub Token。"
+                )
+            elif e.status == 403:
+                raise HTTPException(
+                    status_code=403,
+                    detail="GitHub API 请求频率限制。请稍后再试。"
+                )
+            raise HTTPException(
+                status_code=500,
+                detail=f"搜索仓库时出错: {e.data.get('message', str(e)) if hasattr(e, 'data') else str(e)}"
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        error_detail = traceback.format_exc()
+        logger.error(f"Error searching repos: {error_detail}")
+        raise HTTPException(status_code=500, detail=f"搜索仓库失败: {str(e)}")
+
+@app.post("/api/github/check-issue-permission")
+async def check_issue_permission(
+    request: CheckIssuePermissionRequest,
+    user: Optional[User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db),
+):
+    """Check if user can create issues in a repository"""
+    try:
+        from github import Github
+        from github.GithubException import GithubException
+
+        # 优先使用用户的 GitHub token
+        github = _github_for_user(db, user) if user else None
+        using_user_token = github is not None
+
+        # 如果用户没有配置 token，使用全局 token
+        if github is None:
+            if not Config.GITHUB_TOKEN:
+                return {
+                    "can_create": False,
+                    "reason": "no_token",
+                    "message": "未配置 GitHub Token。请在设置页面配置你的 GitHub Token，以便在其他仓库创建 Issue。",
+                    "repo_info": None,
+                }
+            github = Github(Config.GITHUB_TOKEN)
+
+        try:
+            repo = github.get_repo(request.repo)
+
+            # 获取仓库基本信息
+            repo_info = {
+                "full_name": repo.full_name,
+                "private": repo.private,
+                "has_issues": repo.has_issues,
+                "archived": repo.archived,
+            }
+
+            # 检查是否可以创建 issue
+            can_create = True
+            reason = "ok"
+            message = "可以在此仓库创建 Issue"
+
+            # 检查1: 仓库是否启用 issues
+            if not repo.has_issues:
+                return {
+                    "can_create": False,
+                    "reason": "issues_disabled",
+                    "message": "该仓库已禁用 Issues 功能，无法创建 Issue。",
+                    "repo_info": repo_info,
+                }
+
+            # 检查2: 仓库是否已归档
+            if repo.archived:
+                return {
+                    "can_create": False,
+                    "reason": "archived",
+                    "message": "该仓库已归档，无法创建 Issue。",
+                    "repo_info": repo_info,
+                }
+
+            # 检查3: 尝试获取仓库权限（需要用户 token）
+            if using_user_token:
+                try:
+                    authenticated_user = github.get_user()
+                    repo_owner = repo.owner.login
+
+                    if authenticated_user.login.lower() == repo_owner.lower():
+                        can_create = True
+                        reason = "owner"
+                        message = "你是该仓库的所有者，可以创建 Issue。"
+                    else:
+                        # 公开仓库，任何用户都可以创建 issue
+                        if not repo.private:
+                            can_create = True
+                            reason = "public_repo"
+                            message = "这是公开仓库，你可以创建 Issue。"
+                        else:
+                            can_create = False
+                            reason = "no_permission"
+                            message = "你没有权限在此私有仓库创建 Issue。"
+                except GithubException:
+                    if not repo.private:
+                        can_create = True
+                        reason = "public_repo"
+                        message = "这是公开仓库，你可以创建 Issue。"
+                    else:
+                        can_create = False
+                        reason = "unknown_permission"
+                        message = "无法确定权限。如果是私有仓库，请确保你有访问权限。"
+            else:
+                # 使用全局 token，只能检查基本信息
+                if repo.private:
+                    can_create = False
+                    reason = "private_repo_global_token"
+                    message = "这是私有仓库。请配置你的 GitHub Token 以创建 Issue。"
+                else:
+                    can_create = True
+                    reason = "public_repo_global_token"
+                    message = "这是公开仓库，可以创建 Issue。建议配置你的 GitHub Token 以获得更好的体验。"
+
+            return {
+                "can_create": can_create,
+                "reason": reason,
+                "message": message,
+                "repo_info": repo_info,
+            }
+
+        except GithubException as e:
+            if e.status == 404:
+                return {
+                    "can_create": False,
+                    "reason": "not_found",
+                    "message": f"仓库 {request.repo} 不存在或无法访问。",
+                    "repo_info": None,
+                }
+            elif e.status == 403:
+                return {
+                    "can_create": False,
+                    "reason": "no_access",
+                    "message": f"没有权限访问仓库 {request.repo}。请确保你的 GitHub Token 有访问该仓库的权限。",
+                    "repo_info": None,
+                }
+            raise HTTPException(
+                status_code=500,
+                detail=f"检查权限时出错: {e.data.get('message', str(e)) if hasattr(e, 'data') else str(e)}"
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error checking issue permission: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"检查权限失败: {str(e)}")
 
 
 # ----- Chat Session Management -----

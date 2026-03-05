@@ -265,142 +265,184 @@ Always be helpful, concise, and provide actionable insights. Format your respons
             # Stream agent response
             try:
                 # Track previous content to only yield deltas
+                # Use a list to accumulate all AI message contents (to handle tool calls)
+                accumulated_ai_content = []  # List of all AI message contents seen so far
                 previous_content = ""
                 chunk_count = 0
                 has_yielded = False
 
-                # Use stream_events for more granular streaming (token-level)
-                # This provides better real-time streaming experience
-                logger.debug(f"[AGENT_STREAM] Starting to stream agent response...")
-                logger.debug(f"[AGENT_STREAM] Input data: {input_data}")
-                logger.debug(f"[AGENT_STREAM] Config: {config}")
-                logger.debug(f"[AGENT_STREAM] Agent type: {type(self.agent)}")
-
-                # Try to use stream_events for token-level streaming
-                try:
-                    # Check if agent has stream_events method
-                    if hasattr(self.agent, 'stream_events'):
-                        logger.debug("[AGENT_STREAM] Using stream_events for token-level streaming")
-                        stream_gen = self.agent.stream_events(input_data, config, version="v2")
-                    else:
-                        logger.debug("[AGENT_STREAM] Using stream() method (state-level streaming)")
-                        stream_gen = self.agent.stream(input_data, config)
-                except Exception as e:
-                    logger.warning(f"[AGENT_STREAM] stream_events not available, falling back to stream(): {str(e)}")
-                    stream_gen = self.agent.stream(input_data, config)
-
-                logger.debug(f"[AGENT_STREAM] Stream generator created: {type(stream_gen)}")
+                # Use stream() method for state-level streaming (more reliable)
+                stream_gen = self.agent.stream(input_data, config)
 
                 for chunk in stream_gen:
                     chunk_count += 1
-                    logger.debug(f"[AGENT_STREAM] Received chunk #{chunk_count}, type: {type(chunk)}")
-
-                    # Extract text from chunk
                     current_content = ""
-
-                    # Log first few chunks for debugging (only in DEBUG mode)
-                    if chunk_count <= 3:
-                        logger.debug(f"[AGENT_STREAM] Chunk #{chunk_count} type: {type(chunk)}, value: {str(chunk)[:200]}")
 
                     # LangChain agent.stream() yields state dictionaries
                     if isinstance(chunk, dict):
-                        logger.debug(f"[AGENT_STREAM] Chunk #{chunk_count} is dict, keys: {list(chunk.keys())}")
-
                         # Check for messages in the state (multiple possible structures)
                         messages = None
+                        current_content = ""  # Initialize here
 
                         # Structure 1: chunk["messages"] (direct)
                         if "messages" in chunk:
                             messages = chunk["messages"]
-                            logger.debug(f"[AGENT_STREAM] Found messages directly: {len(messages)} messages")
 
                         # Structure 2: chunk["model"]["messages"] (nested)
-                        elif "model" in chunk and isinstance(chunk["model"], dict):
-                            if "messages" in chunk["model"]:
-                                messages = chunk["model"]["messages"]
-                                logger.debug(f"[AGENT_STREAM] Found messages in model: {len(messages)} messages")
+                        if "model" in chunk:
+                            model_data = chunk["model"]
+                            if isinstance(model_data, dict):
+                                if "messages" in model_data:
+                                    messages = model_data["messages"]
+                                # Also check for direct content in model
+                                elif "content" in model_data:
+                                    content = model_data["content"]
+                                    if isinstance(content, list):
+                                        # Content might be a list of content blocks
+                                        for block in content:
+                                            if isinstance(block, dict) and "text" in block:
+                                                current_content = block["text"]
+                                                break
+                                            elif isinstance(block, str):
+                                                current_content = block
+                                                break
+                                    elif isinstance(content, str):
+                                        current_content = content
 
                         # Structure 3: chunk["agent"]["messages"] (nested)
-                        elif "agent" in chunk and isinstance(chunk["agent"], dict):
+                        if "agent" in chunk and isinstance(chunk["agent"], dict) and not messages:
                             if "messages" in chunk["agent"]:
                                 messages = chunk["agent"]["messages"]
-                                logger.debug(f"[AGENT_STREAM] Found messages in agent: {len(messages)} messages")
 
                         # Extract content from messages if found
                         if messages:
-                            logger.debug(f"[AGENT_STREAM] Processing {len(messages)} messages")
-                            # Get the last message in the chunk
-                            for idx, msg in enumerate(reversed(messages)):
-                                logger.debug(f"[AGENT_STREAM] Checking message {idx}, type: {type(msg)}")
+                            # Collect ALL AI messages in this chunk (to handle tool calls properly)
+                            chunk_ai_contents = []
+                            for idx, msg in enumerate(messages):
+                                # Skip tool calls and human messages, only process AI messages
+                                msg_type = None
+                                if hasattr(msg, "type"):
+                                    msg_type = msg.type
+                                elif isinstance(msg, dict) and "type" in msg:
+                                    msg_type = msg["type"]
+
+                                # Also check class name for AIMessage
+                                if not msg_type and hasattr(msg, "__class__"):
+                                    class_name = msg.__class__.__name__
+                                    if "AI" in class_name or "Assistant" in class_name:
+                                        msg_type = "ai"
+
+                                # Skip non-AI messages (but allow if type is None/unknown - might be AI message)
+                                if msg_type and msg_type not in ["ai", "AIMessage", "AssistantMessage"]:
+                                    continue
+
+                                # Try to extract content
+                                content_found = False
+                                msg_content = None
                                 if hasattr(msg, "content"):
                                     content = msg.content
-                                    logger.debug(f"[AGENT_STREAM] Message has content attribute: {type(content)}, length: {len(str(content)) if content else 0}")
                                     if content:
-                                        current_content = content
-                                        logger.debug(f"[AGENT_STREAM] Found content in message: {str(content)[:100]}...")
-                                        break
-                                elif isinstance(msg, dict):
-                                    logger.debug(f"[AGENT_STREAM] Message is dict, keys: {list(msg.keys())}")
+                                        # If content is a list (e.g., from LangChain message format)
+                                        if isinstance(content, list):
+                                            for block in content:
+                                                if isinstance(block, dict) and "text" in block:
+                                                    msg_content = block["text"]
+                                                    content_found = True
+                                                    break
+                                                elif isinstance(block, str):
+                                                    msg_content = block
+                                                    content_found = True
+                                                    break
+                                        else:
+                                            msg_content = str(content)
+                                            content_found = True
+
+                                        if content_found and msg_content and str(msg_content).strip():
+                                            chunk_ai_contents.append(str(msg_content).strip())
+
+                                if not content_found and isinstance(msg, dict):
                                     if "content" in msg:
-                                        current_content = msg["content"]
-                                        logger.debug(f"[AGENT_STREAM] Found content in dict message: {str(current_content)[:100]}...")
-                                        break
+                                        content = msg["content"]
+                                        if isinstance(content, list):
+                                            for block in content:
+                                                if isinstance(block, dict) and "text" in block:
+                                                    msg_content = block["text"]
+                                                    content_found = True
+                                                    break
+                                                elif isinstance(block, str):
+                                                    msg_content = block
+                                                    content_found = True
+                                                    break
+                                        else:
+                                            msg_content = str(content)
+                                            content_found = True
+
+                                        if content_found and msg_content and str(msg_content).strip():
+                                            chunk_ai_contents.append(str(msg_content).strip())
+
+                            # Combine all AI messages from this chunk
+                            if chunk_ai_contents:
+                                # Join with newlines to separate different AI responses
+                                current_content = "\n".join(chunk_ai_contents)
+                            else:
+                                current_content = ""
 
                         # Also check for "output" key
                         elif "output" in chunk:
-                            logger.debug(f"[AGENT_STREAM] Found 'output' key in chunk")
                             output = chunk["output"]
                             if isinstance(output, str):
                                 current_content = output
-                                logger.debug(f"[AGENT_STREAM] Output is string: {current_content[:100]}...")
                             elif hasattr(output, "content"):
                                 current_content = output.content
-                                logger.debug(f"[AGENT_STREAM] Output has content: {str(current_content)[:100]}...")
-
-                        # Log chunk structure for debugging (only first few chunks)
-                        if chunk_count <= 3:
-                            logger.debug(f"[AGENT_STREAM] Chunk #{chunk_count} keys: {list(chunk.keys())}")
-                            if "model" in chunk:
-                                logger.debug(f"[AGENT_STREAM] Chunk #{chunk_count} model keys: {list(chunk['model'].keys()) if isinstance(chunk['model'], dict) else 'not dict'}")
                     elif hasattr(chunk, "content"):
-                        logger.debug(f"[AGENT_STREAM] Chunk has content attribute")
                         if chunk.content:
                             current_content = chunk.content
-                            logger.debug(f"[AGENT_STREAM] Content from attribute: {str(current_content)[:100]}...")
                     elif isinstance(chunk, str):
-                        logger.debug(f"[AGENT_STREAM] Chunk is string")
                         current_content = chunk
-                        logger.debug(f"[AGENT_STREAM] Content is string: {current_content[:100]}...")
                     else:
-                        logger.warning(f"[AGENT_STREAM] Unknown chunk type: {type(chunk)}")
+                        logger.warning(f"Unknown chunk type: {type(chunk)}")
 
-                    logger.debug(f"[AGENT_STREAM] Extracted content length: {len(current_content)}, previous: {len(previous_content)}")
+                    # Convert to string for comparison
+                    current_content_str = str(current_content) if current_content else ""
 
-                    # Yield only new content (delta) - for state-based streaming
-                    if current_content and len(current_content) > len(previous_content):
-                        delta = current_content[len(previous_content):]
+                    # Accumulate AI content: add new content that we haven't seen before
+                    # This handles the case where tool calls reset the message list
+                    if current_content_str:
+                        # Check if this content is already in our accumulated list
+                        is_new_content = True
+                        for existing_content in accumulated_ai_content:
+                            if current_content_str in existing_content or existing_content in current_content_str:
+                                # If current is a substring of existing, it's not new
+                                if len(current_content_str) <= len(existing_content):
+                                    is_new_content = False
+                                    break
+                                # If current contains existing, replace it
+                                else:
+                                    accumulated_ai_content.remove(existing_content)
+                                    break
+
+                        if is_new_content:
+                            accumulated_ai_content.append(current_content_str)
+
+                    # Build full accumulated content
+                    full_accumulated_content = "\n".join(accumulated_ai_content)
+                    previous_content_str = str(previous_content) if previous_content else ""
+
+                    # Yield only new content (delta) - compare accumulated content with previous
+                    if full_accumulated_content and len(full_accumulated_content) > len(previous_content_str):
+                        delta = full_accumulated_content[len(previous_content_str):]
                         if delta:
                             # Split delta into smaller chunks for better streaming experience
-                            # Yield in smaller pieces (e.g., 10-20 chars at a time) for smoother display
                             chunk_size = 15  # Characters per yield for smoother streaming
                             for i in range(0, len(delta), chunk_size):
                                 piece = delta[i:i + chunk_size]
                                 if piece:
-                                    logger.debug(f"[AGENT_STREAM] Yielding piece: {len(piece)} chars")
                                     yield piece
                                     has_yielded = True
-                                    # Small delay to make streaming more visible (optional)
+                                    # Small delay to make streaming more visible
                                     import time
                                     time.sleep(0.01)  # 10ms delay for smoother display
-                        previous_content = current_content
-                    elif not current_content:
-                        logger.debug(f"[AGENT_STREAM] No new content to yield (current: {len(current_content)}, previous: {len(previous_content)})")
-
-                    # Log progress for debugging (every 50 chunks, only in DEBUG mode)
-                    if chunk_count % 50 == 0:
-                        logger.debug(f"[AGENT_STREAM] Progress: {chunk_count} chunks processed, content length: {len(previous_content)}")
-
-                logger.debug(f"[AGENT_STREAM] Stream loop finished. Total chunks: {chunk_count}, has_yielded: {has_yielded}")
+                        previous_content = full_accumulated_content
 
                 # If no content was yielded, log a warning with more details
                 if not has_yielded:

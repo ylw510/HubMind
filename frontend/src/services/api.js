@@ -311,6 +311,40 @@ export const githubAPI = {
       return { repos: [], count: 0, error: errorMessage }
     }
   },
+  searchRepos: async (query, limit = 20) => {
+    try {
+      const response = await api.post('/api/github/search-repos', {
+        query,
+        limit,
+      })
+      return response.data
+    } catch (error) {
+      console.error('搜索仓库失败:', error)
+      let errorMessage = '搜索仓库失败'
+      if (error.response?.data?.detail) {
+        errorMessage = error.response.data.detail
+      } else if (error.message) {
+        errorMessage = error.message
+      }
+      return { repos: [], count: 0, error: errorMessage }
+    }
+  },
+  checkIssuePermission: async (repo) => {
+    try {
+      const response = await api.post('/api/github/check-issue-permission', {
+        repo,
+      })
+      return response.data
+    } catch (error) {
+      console.error('检查权限失败:', error)
+      return {
+        can_create: false,
+        reason: 'error',
+        message: error.response?.data?.detail || '检查权限失败',
+        repo_info: null,
+      }
+    }
+  },
 }
 
 export default api

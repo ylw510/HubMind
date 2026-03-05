@@ -1,0 +1,43 @@
+/* Common Chatbot Styles */
+
+/* Scrollbar */
+.chatbot-sidebar-content::-webkit-scrollbar,
+.chatbot-messages::-webkit-scrollbar,
+.chatbot-repo-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.chatbot-sidebar-content::-webkit-scrollbar-track,
+.chatbot-messages::-webkit-scrollbar-track,
+.chatbot-repo-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.chatbot-sidebar-content::-webkit-scrollbar-thumb,
+.chatbot-messages::-webkit-scrollbar-thumb,
+.chatbot-repo-list::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 4px;
+}
+
+.chatbot-sidebar-content::-webkit-scrollbar-thumb:hover,
+.chatbot-messages::-webkit-scrollbar-thumb:hover,
+.chatbot-repo-list::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
+
+/* Footer */
+.chatbot-footer {
+  text-align: center;
+  margin-top: 12px;
+}
+
+.chatbot-footer-text {
+  font-size: 12px;
+  color: #9ca3af;
+}
+
+/* Utility Classes */
+.rotated {
+  transform: rotate(180deg);
+}

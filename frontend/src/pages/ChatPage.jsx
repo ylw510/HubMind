@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Send, Bot } from 'lucide-react'
+import { Send, Bot, Plus, Image as ImageIcon, X } from 'lucide-react'
 import { chatAPI, issueAPI } from '../services/api'
 import Sidebar from '../components/Sidebar'
 import ChatMessage from '../components/ChatMessage'
@@ -16,8 +16,12 @@ function ChatPage() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [showIssuePanel, setShowIssuePanel] = useState(false)
   const [issueDraft, setIssueDraft] = useState({ text: '', repo: '' })
+  const [attachedImages, setAttachedImages] = useState([])
+  const fileInputRef = useRef(null)
   const messagesEndRef = useRef(null)
   const queryClient = useQueryClient()
+  const isInitialLoadRef = useRef(true) // 标记是否是初始加载
+  const isStreamingRef = useRef(false) // 使用 ref 跟踪流式状态，避免依赖项问题
 
   // 获取所有对话会话
   const {
@@ -44,11 +48,35 @@ function ChatPage() {
 
   // 当会话数据加载完成时，恢复历史记录
   useEffect(() => {
+    // 如果正在流式输出，不要覆盖历史记录
+    if (isStreamingRef.current) {
+      return
+    }
+
     if (currentSessionData && currentSessionId) {
       // 从数据库加载的消息，确保完全替换当前历史
       const loadedMessages = currentSessionData.messages || []
-      // 只有当加载的消息与当前历史不同时才更新，避免覆盖正在编辑的内容
-      if (JSON.stringify(loadedMessages) !== JSON.stringify(chatHistory)) {
+
+      // 初始加载时，直接设置历史记录
+      if (isInitialLoadRef.current) {
+        setChatHistory(loadedMessages)
+        setSelectedRepo(currentSessionData.repo || '')
+        isInitialLoadRef.current = false
+        return
+      }
+
+      // 非初始加载时，只有当加载的消息与当前历史不同时才更新
+      // 并且只有当本地历史为空或者加载的消息数量更多时才更新（避免用旧数据覆盖新数据）
+      const currentHistoryLength = chatHistory.length
+      const loadedMessagesLength = loadedMessages.length
+
+      // 只有在以下情况才更新：
+      // 1. 本地历史为空（可能是切换会话）
+      // 2. 加载的消息数量明显多于本地历史（说明数据库有更新）
+      // 3. 消息内容确实不同且加载的消息数量不少于本地历史（避免用旧数据覆盖）
+      if (currentHistoryLength === 0 ||
+          (loadedMessagesLength > currentHistoryLength && loadedMessagesLength - currentHistoryLength > 1) ||
+          (JSON.stringify(loadedMessages) !== JSON.stringify(chatHistory) && loadedMessagesLength >= currentHistoryLength)) {
         setChatHistory(loadedMessages)
       }
       setSelectedRepo(currentSessionData.repo || '')
@@ -56,6 +84,7 @@ function ChatPage() {
       // 新对话，清空历史
       setChatHistory([])
       setSelectedRepo('')
+      isInitialLoadRef.current = true
     }
   }, [currentSessionData, currentSessionId])
 
@@ -97,13 +126,15 @@ function ChatPage() {
   }, [chatHistory, streamingMessage])
 
   const mutation = useMutation({
-    mutationFn: (msg) => {
+    mutationFn: ({ message: msg, history }) => {
       // 使用流式模式
       setIsStreaming(true)
+      isStreamingRef.current = true
       setStreamingMessage('')
+
       return chatAPI.chat(
         msg,
-        chatHistory,
+        history, // 使用传入的最新历史记录（包含用户消息）
         selectedRepo || null,
         currentSessionId,
         (chunk, done) => {
@@ -114,29 +145,41 @@ function ChatPage() {
           })
           if (done) {
             setIsStreaming(false)
+            isStreamingRef.current = false
           }
         }
       )
     },
     onSuccess: async (data) => {
-      const userMessage = message.trim()
-      setMessage('')
       setIsStreaming(false)
+      isStreamingRef.current = false
 
-      // 将流式消息添加到历史记录
+      // 清空已附加的图片
+      attachedImages.forEach(img => {
+        URL.revokeObjectURL(img.preview)
+      })
+      setAttachedImages([])
+
+      // 将流式消息添加到历史记录（用户消息已经在发送时添加了）
       const assistantMessage = streamingMessage || data.response
-      const updatedHistory = [
-        ...chatHistory,
-        { role: 'user', content: userMessage },
-        { role: 'assistant', content: assistantMessage }
-      ]
+
+      // 使用函数式更新确保使用最新的历史记录
+      let updatedHistory = []
+      setChatHistory(prev => {
+        // 确保最后一条消息是用户消息，然后添加 AI 回复
+        updatedHistory = [...prev, { role: 'assistant', content: assistantMessage }]
+        return updatedHistory
+      })
 
       setStreamingMessage('')
-      setChatHistory(updatedHistory)
+
+      // 从更新后的历史记录中获取用户消息（最后一条用户消息）
+      const userMessages = updatedHistory.filter(m => m.role === 'user')
+      const lastUserMessage = userMessages.length > 0 ? userMessages[userMessages.length - 1].content : ''
 
       // 如果是新对话，创建会话并保存历史
       if (!currentSessionId || currentSessionId === 'current') {
-        const newSessionId = await createNewSession(userMessage, updatedHistory)
+        const newSessionId = await createNewSession(lastUserMessage, updatedHistory)
         // 创建会话后，历史已经保存，直接设置
         if (newSessionId) {
           // 等待一下，确保数据已保存，然后刷新
@@ -151,7 +194,7 @@ function ChatPage() {
 
       // 如果 issue 面板已打开，尝试更新 issue 内容
       if (showIssuePanel && issueDraft.repo) {
-        updateIssueFromMessage(userMessage, updatedHistory)
+        updateIssueFromMessage(lastUserMessage, updatedHistory)
       }
 
       // 更新会话标题（只在新会话创建后更新）
@@ -312,15 +355,36 @@ function ChatPage() {
       }
     }
 
+    // 如果有图片，在消息前添加图片描述
+    let finalUserMessage = userMessage
+    if (attachedImages.length > 0) {
+      const imageInfo = attachedImages.map((img, idx) =>
+        `[图片 ${idx + 1}: ${img.name}]`
+      ).join('\n')
+      finalUserMessage = `${imageInfo}\n\n${userMessage}`
+    }
+
+    // 立即将用户消息添加到历史记录，这样用户消息会立即显示
+    const userMsg = { role: 'user', content: finalUserMessage }
+    setChatHistory(prev => [...prev, userMsg])
+    setMessage('') // 立即清空输入框
+
+    // 立即设置流式状态，显示加载指示器
+    setIsStreaming(true)
+    setStreamingMessage('')
+
+    // 构建包含用户消息的最新历史记录
+    const updatedHistoryWithUser = [...chatHistory, userMsg]
+
     // 如果 issue 面板已打开，尝试更新 issue 内容
     if (showIssuePanel && issueDraft.repo) {
       // 继续对话，但也会更新 issue
-      mutation.mutate(userMessage)
+      mutation.mutate({ message: finalUserMessage, history: updatedHistoryWithUser })
       return
     }
 
     // 正常发送给 agent
-    mutation.mutate(userMessage)
+    mutation.mutate({ message: finalUserMessage, history: updatedHistoryWithUser })
   }
 
   const handleNewChat = () => {
@@ -334,6 +398,7 @@ function ChatPage() {
 
   const handleSelectSession = (sessionId) => {
     setCurrentSessionId(sessionId)
+    isInitialLoadRef.current = true // 切换会话时标记为初始加载
     // 历史记录会通过 useQuery 自动加载
   }
 
@@ -368,6 +433,59 @@ function ChatPage() {
   const handleRemoveRepo = () => {
     setSelectedRepo('')
   }
+
+  // 处理图片选择
+  const handleImageSelect = (e) => {
+    const files = Array.from(e.target.files || [])
+    if (files.length === 0) return
+
+    const newImages = files.map(file => {
+      // 验证文件类型
+      if (!file.type.startsWith('image/')) {
+        alert('请选择图片文件')
+        return null
+      }
+
+      // 验证文件大小（限制为 5MB）
+      if (file.size > 5 * 1024 * 1024) {
+        alert('图片大小不能超过 5MB')
+        return null
+      }
+
+      return {
+        file,
+        preview: URL.createObjectURL(file),
+        name: file.name
+      }
+    }).filter(Boolean)
+
+    setAttachedImages(prev => [...prev, ...newImages])
+
+    // 清空 input，允许重复选择同一文件
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+  }
+
+  // 移除图片
+  const handleRemoveImage = (index) => {
+    setAttachedImages(prev => {
+      const newImages = [...prev]
+      // 释放预览 URL
+      URL.revokeObjectURL(newImages[index].preview)
+      newImages.splice(index, 1)
+      return newImages
+    })
+  }
+
+  // 清理所有图片预览 URL
+  useEffect(() => {
+    return () => {
+      attachedImages.forEach(img => {
+        URL.revokeObjectURL(img.preview)
+      })
+    }
+  }, [attachedImages])
 
   const handleIssueCreated = (issueData) => {
     // Issue 创建成功后的处理
@@ -422,6 +540,7 @@ function ChatPage() {
               />
             ))}
 
+            {/* 显示流式消息（如果有内容） */}
             {isStreaming && streamingMessage && (
               <ChatMessage
                 message={{ content: streamingMessage }}
@@ -429,7 +548,8 @@ function ChatPage() {
               />
             )}
 
-            {mutation.isPending && !isStreaming && !streamingMessage && (
+            {/* 显示加载指示器：当正在流式响应但还没有内容时，或者 mutation 正在 pending 时 */}
+            {(isStreaming && !streamingMessage) || (mutation.isPending && !isStreaming) ? (
               <div className="chatbot-message assistant">
                 <div className="chatbot-message-avatar">
                   <Bot size={20} />
@@ -444,7 +564,7 @@ function ChatPage() {
                   </div>
                 </div>
               </div>
-            )}
+            ) : null}
 
             <div ref={messagesEndRef} />
           </div>
@@ -452,20 +572,60 @@ function ChatPage() {
           <div className="chatbot-input-area">
             <form onSubmit={handleSubmit} className="chatbot-input-form">
               <div className="chatbot-input-container">
-                <textarea
-                  className="chatbot-input"
-                  value={message}
-                  onChange={(e) => setMessage(e.target.value)}
-                  placeholder="Ask anything"
-                  disabled={mutation.isPending}
-                  rows={1}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault()
-                      handleSubmit(e)
-                    }
-                  }}
-                />
+                {/* 图片预览区域 */}
+                {attachedImages.length > 0 && (
+                  <div className="chatbot-attached-images">
+                    {attachedImages.map((img, idx) => (
+                      <div key={idx} className="chatbot-attached-image-item">
+                        <img src={img.preview} alt={`附件 ${idx + 1}`} />
+                        <button
+                          type="button"
+                          className="chatbot-attached-image-remove"
+                          onClick={() => handleRemoveImage(idx)}
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="chatbot-input-wrapper">
+                  {/* 加号按钮 - 添加图片 */}
+                  <button
+                    type="button"
+                    className="chatbot-add-attachment-btn"
+                    onClick={() => fileInputRef.current?.click()}
+                    title="添加图片"
+                  >
+                    <Plus size={20} />
+                  </button>
+
+                  {/* 隐藏的文件输入 */}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    style={{ display: 'none' }}
+                    onChange={handleImageSelect}
+                  />
+
+                  <textarea
+                    className="chatbot-input"
+                    value={message}
+                    onChange={(e) => setMessage(e.target.value)}
+                    placeholder="有疑问，尽管问"
+                    disabled={mutation.isPending}
+                    rows={1}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault()
+                        handleSubmit(e)
+                      }
+                    }}
+                  />
+                </div>
                 <div className="chatbot-input-actions">
                   <div className="chatbot-input-action-left">
                     <button

@@ -6,4 +6,5 @@
 @import './chatbot/input.css';
 @import './chatbot/repo-selector.css';
 @import './chatbot/issue-panel.css';
+@import './chatbot/pr-panel.css';
 @import './chatbot/common.css';

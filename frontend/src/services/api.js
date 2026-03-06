@@ -187,11 +187,12 @@ export const trendingAPI = {
 }
 
 export const prAPI = {
-  getPRs: async (repo, limit = 10, valuable = false) => {
+  getPRs: async (repo, limit = 10, valuable = false, author = null) => {
     const response = await api.post('/api/prs', {
       repo,
       limit,
       valuable,
+      ...(author && author.trim() ? { author: author.trim() } : {}),
     })
     return response.data
   },

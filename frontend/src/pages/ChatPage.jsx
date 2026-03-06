@@ -6,6 +6,7 @@ import Sidebar from '../components/Sidebar'
 import ChatMessage from '../components/ChatMessage'
 import RepoSelector from '../components/RepoSelector'
 import IssuePanel from '../components/IssuePanel'
+import PRPanel from '../components/PRPanel'
 import '../styles/chatbot.css'
 
 function ChatPage() {
@@ -16,6 +17,8 @@ function ChatPage() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [showIssuePanel, setShowIssuePanel] = useState(false)
   const [issueDraft, setIssueDraft] = useState({ text: '', repo: '' })
+  const [showPRPanel, setShowPRPanel] = useState(false)
+  const [prPanelQuery, setPrPanelQuery] = useState('')
   const [attachedImages, setAttachedImages] = useState([])
   const fileInputRef = useRef(null)
   const messagesEndRef = useRef(null)
@@ -102,6 +105,29 @@ function ChatPage() {
     // 或者包含 "issue" 或 "问题" 且长度足够（可能是描述性的）
     const hasIssueKeyword = (lowerText.includes('issue') || lowerText.includes('问题') || lowerText.includes('bug')) && text.length > 10
     return hasExplicitIntent || (hasIssueKeyword && showIssuePanel === false)
+  }
+
+  // 检测「查看 XXX 项目今天的 PR」意图
+  const detectPRListIntent = (text) => {
+    const lower = text.toLowerCase().trim()
+    const hasPR = /\bpr\b|pull\s*request|合并请求|今日.*pr|今天.*pr|今天的\s*pr/i.test(lower)
+    const hasToday = /今天|今日|today/i.test(lower)
+    const hasView = /查看|看看|帮我查|想看/i.test(lower)
+    const hasProject = /项目|repo|仓库|repository/i.test(lower) || /[\w\u4e00-\u9fa5\-]{2,}/.test(text)
+    return hasPR && (hasToday || hasView) && hasProject
+  }
+
+  // 从消息中提取项目名（用于搜索仓库）：只取英文/数字/斜杠，避免把「今天的pr」等中文带进去
+  const extractProjectNameForPR = (text) => {
+    // 优先：查看/看看 + 纯英文数字的仓库名（如 ClickHouse、Vue、facebook/react）
+    const m = text.match(/(?:帮我)?(?:查看|看看|查一下)\s*([a-zA-Z0-9_\-/]+)/i)
+    if (m) return m[1].trim()
+    // 备选：在「今天/今日」之前的英文数字段
+    const m2 = text.match(/([a-zA-Z0-9_\-/]{2,})\s*(?:项目|仓库)?\s*(?:今天|今日)/i)
+    if (m2) return m2[1].trim()
+    // 兜底：整句里第一段连续英文/数字
+    const m3 = text.match(/([a-zA-Z0-9_\-/]{2,})/)
+    return m3 ? m3[1].trim() : text.replace(/\s+/g, ' ').trim().slice(0, 30)
   }
 
   // 从消息中提取 issue 描述
@@ -305,6 +331,19 @@ function ChatPage() {
     }
   }
 
+  // 处理「查看项目今日 PR」意图：展示用户消息并打开 PR 面板（带确认工作流）
+  const handlePRListIntent = (userMessage) => {
+    const projectName = extractProjectNameForPR(userMessage)
+    if (!projectName) return false
+    setChatHistory(prev => [...prev,
+      { role: 'user', content: userMessage },
+      { role: 'assistant', content: '✅ 正在查找您说的项目，请在右侧面板确认是否为要查看的仓库，确认后将加载今日 PR 列表。' }
+    ])
+    setPrPanelQuery(projectName)
+    setShowPRPanel(true)
+    return true
+  }
+
   // 从消息历史中提取仓库名
   const extractRepoFromMessage = (history) => {
     for (const msg of history.reverse()) {
@@ -351,7 +390,15 @@ function ChatPage() {
     if (detectIssueIntent(userMessage) && !showIssuePanel) {
       if (handleIssueIntent(userMessage)) {
         setMessage('')
-        return // 已处理，不发送给 agent
+        return
+      }
+    }
+
+    // 如果检测到「查看 XXX 项目今天的 PR」意图，打开 PR 面板（带确认工作流），不发送给 agent
+    if (detectPRListIntent(userMessage) && !showPRPanel) {
+      if (handlePRListIntent(userMessage)) {
+        setMessage('')
+        return
       }
     }
 
@@ -390,10 +437,12 @@ function ChatPage() {
   const handleNewChat = () => {
     setChatHistory([])
     setSelectedRepo('')
-    setCurrentSessionId(null) // 设置为 null，等待第一条消息时创建
+    setCurrentSessionId(null)
     setShowIssuePanel(false)
     setIssueDraft({ text: '', repo: '' })
-    setMessage('') // 清空输入框
+    setShowPRPanel(false)
+    setPrPanelQuery('')
+    setMessage('')
   }
 
   const handleSelectSession = (sessionId) => {
@@ -501,8 +550,13 @@ function ChatPage() {
     setIssueDraft({ text: '', repo: '' })
   }
 
+  const handleClosePRPanel = () => {
+    setShowPRPanel(false)
+    setPrPanelQuery('')
+  }
+
   return (
-    <div className={`chatbot-layout ${showIssuePanel ? 'with-issue-panel' : ''}`}>
+    <div className={`chatbot-layout ${showIssuePanel ? 'with-issue-panel' : ''} ${showPRPanel ? 'with-pr-panel' : ''}`}>
       <Sidebar
         sessions={chatSessions}
         currentSessionId={currentSessionId}
@@ -515,7 +569,7 @@ function ChatPage() {
 
       <main className="chatbot-main">
         <div className="chatbot-content">
-          <div className={`chatbot-messages ${showIssuePanel ? 'with-panel' : ''}`}>
+          <div className={`chatbot-messages ${showIssuePanel ? 'with-panel' : ''} ${showPRPanel ? 'with-pr-panel' : ''}`}>
             {chatHistory.length === 0 && (
               <div className="chatbot-empty">
                 <div className="chatbot-empty-icon">
@@ -669,11 +723,18 @@ function ChatPage() {
 
       {showIssuePanel && issueDraft.repo && issueDraft.text && (
         <IssuePanel
-          key={`${issueDraft.repo}-${issueDraft.text.slice(0, 50)}-${Date.now()}`} // 当内容变化时重新渲染
+          key={`${issueDraft.repo}-${issueDraft.text.slice(0, 50)}-${Date.now()}`}
           repo={issueDraft.repo}
           initialText={issueDraft.text}
           onClose={handleCloseIssuePanel}
           onIssueCreated={handleIssueCreated}
+        />
+      )}
+
+      {showPRPanel && prPanelQuery && (
+        <PRPanel
+          initialQuery={prPanelQuery}
+          onClose={handleClosePRPanel}
         />
       )}
     </div>

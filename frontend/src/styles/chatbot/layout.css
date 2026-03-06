@@ -267,7 +267,8 @@
   pointer-events: none;
 }
 
-.chatbot-layout.with-issue-panel .chatbot-main::after {
+.chatbot-layout.with-issue-panel .chatbot-main::after,
+.chatbot-layout.with-pr-panel .chatbot-main::after {
   opacity: 1;
 }
 
@@ -292,6 +293,12 @@
 
 .chatbot-messages.with-panel {
   margin-right: 420px;
+  background: linear-gradient(to right, #ffffff 0%, #fafbfc 100%);
+  padding-right: 24px;
+}
+
+.chatbot-messages.with-pr-panel {
+  margin-right: 460px;
   background: linear-gradient(to right, #ffffff 0%, #fafbfc 100%);
   padding-right: 24px;
 }
@@ -325,6 +332,7 @@
   max-width: 400px;
 }
 
-.chatbot-layout.with-issue-panel {
+.chatbot-layout.with-issue-panel,
+.chatbot-layout.with-pr-panel {
   position: relative;
 }

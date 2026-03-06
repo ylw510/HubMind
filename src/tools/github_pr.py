@@ -57,6 +57,42 @@ class GitHubPRTool:
         except Exception as e:
             return [{"error": str(e)}]
 
+    def get_prs_by_author(
+        self,
+        repo_full_name: str,
+        author: str,
+        limit: int = 20
+    ) -> List[Dict]:
+        """
+        Get pull requests in a repository by a specific author (GitHub username).
+        Uses GitHub Search API (repo:owner/repo author:user is:pr) so large repos
+        return quickly instead of iterating all PRs.
+
+        Args:
+            repo_full_name: Repository full name (owner/repo)
+            author: GitHub username (login) of the PR author
+            limit: Maximum number of PRs to return
+
+        Returns:
+            List of PR information
+        """
+        if not author or not author.strip():
+            return []
+        author_clean = author.strip()
+        try:
+            # Search API: one query returns only this author's PRs in this repo
+            query = f"repo:{repo_full_name} author:{author_clean} is:pr"
+            prs = []
+            for issue in self.github.search_issues(
+                query, sort="updated", order="desc"
+            ):
+                if len(prs) >= limit:
+                    break
+                prs.append(self._search_issue_to_pr_dict(issue))
+            return prs
+        except Exception as e:
+            return [{"error": str(e)}]
+
     def get_valuable_prs(
         self,
         repo_full_name: str,
@@ -214,6 +250,22 @@ class GitHubPRTool:
             "additions": pr.additions,
             "deletions": pr.deletions,
             "url": pr.html_url,
+        }
+
+    def _search_issue_to_pr_dict(self, issue) -> Dict:
+        """Convert Search API issue (PR) to same dict shape as _pr_to_dict."""
+        return {
+            "number": issue.number,
+            "title": issue.title,
+            "state": issue.state,
+            "author": issue.user.login if issue.user else "",
+            "created_at": issue.created_at.isoformat(),
+            "updated_at": issue.updated_at.isoformat(),
+            "comments": 0,
+            "review_comments": 0,
+            "additions": None,
+            "deletions": None,
+            "url": issue.html_url,
         }
 
     def _calculate_value_score(self, pr) -> float:

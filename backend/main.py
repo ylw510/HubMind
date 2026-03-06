@@ -97,6 +97,7 @@ class PRRequest(BaseModel):
     repo: str
     limit: int = 10
     valuable: bool = False
+    author: Optional[str] = None
 
 class AnalyzePRRequest(BaseModel):
     repo: str
@@ -668,7 +669,9 @@ async def get_prs(
             tool = GitHubPRTool(github_token=token) if token else get_pr_tool()
         else:
             tool = get_pr_tool()
-        if request.valuable:
+        if request.author and request.author.strip():
+            prs = tool.get_prs_by_author(request.repo, request.author.strip(), limit=request.limit)
+        elif request.valuable:
             prs = tool.get_valuable_prs(request.repo, limit=request.limit)
         else:
             prs = tool.get_today_prs(request.repo, limit=request.limit)
@@ -676,7 +679,8 @@ async def get_prs(
             "repo": request.repo,
             "prs": prs,
             "count": len(prs),
-            "valuable": request.valuable
+            "valuable": request.valuable,
+            "author": request.author if (request.author and request.author.strip()) else None
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -1213,10 +1217,17 @@ async def search_repos(
             if not search_query:
                 return {"repos": [], "count": 0}
 
-            # 构建搜索查询，支持 owner/repo 格式或普通搜索词
+            # 构建搜索查询
             if '/' in search_query and len(search_query.split('/')) == 2:
-                # 如果是 owner/repo 格式，精确搜索
+                # owner/repo 格式：精确搜索
                 search_query = f"repo:{search_query}"
+            else:
+                # 单词或短词（如 ClickHouse、Vue）：优先按仓库名匹配，提高准确度
+                q = search_query.split()
+                if len(q) == 1 and q[0].isalnum():
+                    search_query = f"{search_query} in:name"
+                elif not any(c in search_query for c in (' ', ':', '"')):
+                    search_query = f"{search_query} in:name"
 
             repos = github.search_repositories(
                 search_query,

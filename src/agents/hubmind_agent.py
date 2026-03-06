@@ -17,6 +17,7 @@ from src.tools.github_issue import GitHubIssueTool
 from src.tools.langchain_tools import create_github_tools
 from src.utils.llm_factory import LLMFactory
 from src.utils.logger import get_logger
+from src.utils.langchain_checkpointer import create_checkpointer
 from config import Config
 
 # Setup logger
@@ -35,6 +36,7 @@ class HubMindAgent:
         llm_api_key: Optional[str] = None,
         llm_base_url: Optional[str] = None,
         llm_model: Optional[str] = None,
+        checkpointer=None,
     ):
         """
         Initialize HubMind Agent
@@ -86,6 +88,9 @@ class HubMindAgent:
             pr_tool=self.pr_tool,
             issue_tool=self.issue_tool
         )
+
+        # Store checkpointer if provided
+        self.checkpointer = checkpointer
 
         # Create agent using LangChain 1.2+ API
         self.agent = self._create_agent()
@@ -155,12 +160,20 @@ Always be helpful, concise, and provide actionable insights. Format your respons
 
         # Use LangChain 1.2+ create_agent API (unified for all LLMs)
         # Note: create_agent returns a CompiledStateGraph, not a simple callable
-        agent_graph = create_agent(
-            model=self.llm,
-            tools=self.tools,
-            system_prompt=system_prompt,
-            debug=False  # Disable debug to reduce output
-        )
+        agent_kwargs = {
+            "model": self.llm,
+            "tools": self.tools,
+            "system_prompt": system_prompt,
+            "debug": False  # Disable debug to reduce output
+        }
+
+        # Add checkpointer if available
+        if self.checkpointer:
+            checkpointer_instance = self.checkpointer.get_checkpointer()
+            if checkpointer_instance:
+                agent_kwargs["checkpointer"] = checkpointer_instance
+
+        agent_graph = create_agent(**agent_kwargs)
         return agent_graph
 
     def _supports_tool_calling(self) -> bool:
@@ -175,26 +188,50 @@ Always be helpful, concise, and provide actionable insights. Format your respons
     # They are now defined using @tool decorator with structured inputs (Pydantic models)
     # This provides better type safety, validation, and LLM understanding
 
-    def chat(self, message: str, chat_history: Optional[List] = None) -> str:
+    def chat(self, message: str, chat_history: Optional[List] = None, session_id: Optional[int] = None) -> str:
         """
         Chat with the agent
 
         Args:
             message: User message
-            chat_history: Previous conversation history
+            chat_history: Previous conversation history (deprecated, use session_id instead)
+            session_id: Session ID to use as thread_id for LangChain memory
 
         Returns:
             Agent response
         """
         try:
-            # LangChain 1.2+ agent invocation
-            # Use a consistent thread_id for the session
-            import hashlib
-            thread_id = hashlib.md5(message.encode()).hexdigest()[:8]
+            # Use session_id as thread_id if provided, otherwise fallback to hash
+            if session_id:
+                thread_id = str(session_id)
+            else:
+                import hashlib
+                thread_id = hashlib.md5(message.encode()).hexdigest()[:8]
+
             config = {"configurable": {"thread_id": thread_id}}
 
             # Prepare input - LangChain 1.2+ expects messages in the input
-            input_data = {"messages": [HumanMessage(content=message)]}
+            # 如果有历史消息，包含在输入中
+            messages_list = []
+
+            # 添加历史消息（如果提供）
+            if chat_history:
+                # chat_history 可能是 List[Dict] 或 List[Message]
+                for msg in chat_history:
+                    if isinstance(msg, dict):
+                        # 字典格式：{"role": "user", "content": "..."}
+                        if msg.get("role") == "user":
+                            messages_list.append(HumanMessage(content=msg.get("content", "")))
+                        elif msg.get("role") == "assistant":
+                            messages_list.append(AIMessage(content=msg.get("content", "")))
+                    elif isinstance(msg, (HumanMessage, AIMessage)):
+                        # 已经是 LangChain Message 对象
+                        messages_list.append(msg)
+
+            # 添加当前用户消息
+            messages_list.append(HumanMessage(content=message))
+
+            input_data = {"messages": messages_list}
 
             # Invoke agent - handle potential connection issues
             try:
@@ -243,24 +280,50 @@ Always be helpful, concise, and provide actionable insights. Format your respons
             logger.debug(f"Error detail: {error_detail}")
             return f"处理请求时出错: {str(e)}。请检查配置是否正确。"
 
-    def chat_stream(self, message: str, chat_history: Optional[List] = None):
+    def chat_stream(self, message: str, chat_history: Optional[List] = None, session_id: Optional[int] = None):
         """
         Chat with the agent using streaming (synchronous generator)
 
         Args:
             message: User message
-            chat_history: Previous conversation history
+            chat_history: Previous conversation history (deprecated, use session_id instead)
+            session_id: Session ID to use as thread_id for LangChain memory
 
         Yields:
             Chunks of agent response text
         """
         try:
-            import hashlib
-            thread_id = hashlib.md5(message.encode()).hexdigest()[:8]
+            # Use session_id as thread_id if provided, otherwise fallback to hash
+            if session_id:
+                thread_id = str(session_id)
+            else:
+                import hashlib
+                thread_id = hashlib.md5(message.encode()).hexdigest()[:8]
+
             config = {"configurable": {"thread_id": thread_id}}
 
             # Prepare input - LangChain 1.2+ expects messages in the input
-            input_data = {"messages": [HumanMessage(content=message)]}
+            # 如果有历史消息，包含在输入中
+            messages_list = []
+
+            # 添加历史消息（如果提供）
+            if chat_history:
+                # chat_history 可能是 List[Dict] 或 List[Message]
+                for msg in chat_history:
+                    if isinstance(msg, dict):
+                        # 字典格式：{"role": "user", "content": "..."}
+                        if msg.get("role") == "user":
+                            messages_list.append(HumanMessage(content=msg.get("content", "")))
+                        elif msg.get("role") == "assistant":
+                            messages_list.append(AIMessage(content=msg.get("content", "")))
+                    elif isinstance(msg, (HumanMessage, AIMessage)):
+                        # 已经是 LangChain Message 对象
+                        messages_list.append(msg)
+
+            # 添加当前用户消息
+            messages_list.append(HumanMessage(content=message))
+
+            input_data = {"messages": messages_list}
 
             # Stream agent response
             try:

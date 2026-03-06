@@ -1,6 +1,7 @@
 langchain>=0.1.0
 langchain-openai>=0.0.5
 langchain-community>=0.0.20
+langgraph>=0.0.20
 openai>=1.10.0
 python-dotenv>=1.0.0
 pygithub>=2.1.1
@@ -12,6 +13,7 @@ lxml>=5.1.0
 rich>=13.7.0
 typer>=0.9.0
 socksio>=1.0.0
+redis>=5.0.0
 
 # Optional LLM Provider Dependencies (install as needed)
 # langchain-anthropic>=0.1.0  # For Anthropic Claude

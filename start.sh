@@ -49,7 +49,7 @@ if [ ! -d "backend/venv" ]; then
   echo "📦 安装后端依赖..."
   $PYVENV -m pip install -q -r backend/requirements.txt -r requirements.txt
   echo "✅ 后端依赖已安装"
-elif ! $PYVENV -c "import fastapi" 2>/dev/null; then
+elif ! $PYVENV -c "import fastapi" 2>/dev/null || ! $PYVENV -c "import redis" 2>/dev/null; then
   echo "📦 后端 venv 缺少依赖，正在安装..."
   $PYVENV -m pip install -q -r backend/requirements.txt -r requirements.txt
   echo "✅ 后端依赖已安装"

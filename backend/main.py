@@ -30,6 +30,8 @@ from src.tools.github_pr import GitHubPRTool
 from src.tools.github_issue import GitHubIssueTool
 from src.utils.dashboard import DeveloperDashboard
 from src.utils.logger import get_logger
+from src.utils.langchain_checkpointer import create_checkpointer
+from src.utils.memory_manager import HybridMemoryManager
 from config import Config
 
 # Setup logger
@@ -178,10 +180,20 @@ _pr_tool: Optional[GitHubPRTool] = None
 _issue_tool: Optional[GitHubIssueTool] = None
 _dashboard: Optional[DeveloperDashboard] = None
 
+# 全局 checkpointer 实例
+_checkpointer = None
+
+def get_checkpointer():
+    """获取全局 checkpointer 实例"""
+    global _checkpointer
+    if _checkpointer is None:
+        _checkpointer = create_checkpointer()
+    return _checkpointer
+
 def get_agent() -> HubMindAgent:
     global _agent
     if _agent is None:
-        _agent = HubMindAgent()
+        _agent = HubMindAgent(checkpointer=get_checkpointer())
     return _agent
 
 def get_qa_agent() -> HubMindQAAgent:
@@ -439,6 +451,30 @@ async def chat(
         if request.repo:
             message = f"[仓库: {request.repo}]\n{message}"
 
+        # 加载历史消息（如果有 session_id）
+        chat_history_for_agent = None
+        if user and request.session_id is not None:
+            try:
+                memory_manager = HybridMemoryManager(db_session=db)
+                # 加载最近的消息（滑动窗口：30条）
+                recent_messages = memory_manager.load_recent_messages(
+                    session_id=request.session_id,
+                    max_messages=30
+                )
+                if recent_messages:
+                    # 转换为 LangChain Message 格式
+                    from langchain_core.messages import HumanMessage, AIMessage
+                    chat_history_for_agent = []
+                    for msg in recent_messages:
+                        if msg["role"] == "user":
+                            chat_history_for_agent.append(HumanMessage(content=msg["content"]))
+                        elif msg["role"] == "assistant":
+                            chat_history_for_agent.append(AIMessage(content=msg["content"]))
+                    logger.debug(f"Loaded {len(chat_history_for_agent)} messages from history for session {request.session_id}")
+            except Exception as e:
+                logger.warning(f"Failed to load chat history: {e}. Continuing without history.")
+                chat_history_for_agent = None
+
         async def generate_stream():
             """Generate streaming response"""
             full_response = ""
@@ -459,7 +495,11 @@ async def chat(
                     """Run synchronous stream in thread"""
                     nonlocal stream_error, chunks_produced, chunks_queued
                     try:
-                        chunk_gen = agent.chat_stream(message, request.chat_history)
+                        # 使用 session_id 作为 thread_id（如果提供）
+                        session_id = request.session_id if request.session_id else None
+                        # 使用加载的历史消息（优先）或请求中的历史消息
+                        history_to_use = chat_history_for_agent if chat_history_for_agent else request.chat_history
+                        chunk_gen = agent.chat_stream(message, history_to_use, session_id=session_id)
 
                         for chunk in chunk_gen:
                             chunks_produced += 1
@@ -565,19 +605,25 @@ async def chat(
                                     ChatSession.user_id == user.id
                                 ).first()
                                 if session:
-                                    # Add new messages to database
-                                    user_msg = ChatMessage(
+                                    # 使用混合存储管理器保存消息
+                                    memory_manager = HybridMemoryManager(db_session=db)
+
+                                    # 保存用户消息到Redis和PostgreSQL
+                                    memory_manager.save_message(
                                         session_id=session.id,
                                         role="user",
-                                        content=request.message
+                                        content=request.message,
+                                        save_to_db=True
                                     )
-                                    assistant_msg = ChatMessage(
+
+                                    # 保存AI回复到Redis和PostgreSQL
+                                    memory_manager.save_message(
                                         session_id=session.id,
                                         role="assistant",
-                                        content=full_response
+                                        content=full_response,
+                                        save_to_db=True
                                     )
-                                    db.add(user_msg)
-                                    db.add(assistant_msg)
+
                                     session.updated_at = datetime.utcnow()
                                     db.commit()
                             except Exception as e:
